@@ -1,0 +1,5 @@
+.build/
+Cockpit.app/
+.DS_Store
+*.iconset/
+tools/makeicon
