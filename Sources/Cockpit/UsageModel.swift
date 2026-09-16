@@ -99,7 +99,13 @@ final class UsageModel: ObservableObject {
     // Choices offered in Settings for each flank.
     var flankChoices: [(String, String)] {
         var out = [("auto", "Automatic")]
-        for b in snapshot.buckets { out.append((b.key, b.title + (b.isModelSpecific ? " · weekly" : ""))) }
+        for b in snapshot.buckets {
+            // Codename windows (no label from the API) stay out unless asked for in Settings.
+            let unlabeled = !BucketInfo.isKnown(b.key) && b.label == nil
+            if unlabeled && !showUnlabeledBuckets { continue }
+            let suffix = unlabeled ? " · unlabeled" : (b.isModelSpecific ? " · weekly" : "")
+            out.append((b.key, b.title + suffix))
+        }
         for key in ["five_hour", "seven_day"] where !snapshot.buckets.contains(where: { $0.key == key }) {
             out.append((key, BucketInfo.title(for: key)))
         }
