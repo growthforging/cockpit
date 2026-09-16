@@ -25,6 +25,7 @@ final class UsageModel: ObservableObject {
     }
     @Published var loginDeclined: Bool { didSet { save() } }
     @Published var showUnlabeledBuckets: Bool { didSet { save() } }
+    @Published var menuBarMode: MenuBarMode { didSet { save() } }
 
     var onDisplayModeChange: (() -> Void)?
 
@@ -50,6 +51,7 @@ final class UsageModel: ObservableObject {
         useClaudeCodeLogin = (d.object(forKey: "useClaudeCodeLogin") as? Bool) ?? true
         loginDeclined = d.bool(forKey: "loginDeclined")
         showUnlabeledBuckets = d.bool(forKey: "showUnlabeledBuckets")
+        menuBarMode = MenuBarMode(rawValue: d.string(forKey: "menuBarMode") ?? "") ?? .flanks
     }
 
     func start() {
@@ -222,5 +224,6 @@ final class UsageModel: ObservableObject {
         d.set(useClaudeCodeLogin, forKey: "useClaudeCodeLogin")
         d.set(loginDeclined, forKey: "loginDeclined")
         d.set(showUnlabeledBuckets, forKey: "showUnlabeledBuckets")
+        d.set(menuBarMode.rawValue, forKey: "menuBarMode")
     }
 }

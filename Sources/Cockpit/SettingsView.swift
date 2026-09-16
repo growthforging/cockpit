@@ -61,6 +61,13 @@ struct SettingsView: View {
                 Text("Automatic shows Fable on the left when the login provides it (otherwise the week), and the 5-hour session on the right. Pick Fable for both, or Nothing for a side, to make the notch show only what you care about.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Picker("Menu bar chip", selection: $usage.menuBarMode) {
+                    Text("Same readouts as the notch").tag(MenuBarMode.flanks)
+                    Text("Every window").tag(MenuBarMode.all)
+                }
+                Text("The chip lives in the menu bar of an external display (and beside the island whenever more than one screen is connected). Click it for the full panel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Text("Corner radius")
                     Slider(value: $usage.notchCornerRadius, in: 2...18, step: 0.5)

@@ -102,6 +102,13 @@ enum DisplayMode: String, CaseIterable, Identifiable {
     var showsNotch: Bool { self != .menuBar }
 }
 
+// What the menu-bar chip carries when it's shown (external display, or more than one screen).
+enum MenuBarMode: String, CaseIterable, Identifiable {
+    case flanks   // the same readouts as the notch flanks, labelled
+    case all      // session, week and every per-model limit
+    var id: String { rawValue }
+}
+
 // Threshold → colour. The colour encodes risk (pace vs reset), not the raw number.
 enum Level {
     case calm, caution, critical

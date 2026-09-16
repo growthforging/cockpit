@@ -125,9 +125,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func renderStatusItem() {
         guard statusItem != nil else { return }
-        let bucket = usage.flankBucket(.right) ?? usage.snapshot.fiveHour
-        let pace = usage.pace(for: bucket.key)
-        let renderer = ImageRenderer(content: StatusBarContent(pct: bucket.pct, level: pace.risk, expectedPct: pace.expectedPct, precise: usage.precise))
+        var buckets: [UsageBucket] = []
+        switch usage.menuBarMode {
+        case .flanks:
+            for side in [UsageModel.Side.left, .right] {
+                if let b = usage.flankBucket(side), !buckets.contains(where: { $0.key == b.key }) { buckets.append(b) }
+            }
+        case .all:
+            buckets = [usage.snapshot.fiveHour, usage.snapshot.weekly] + usage.modelBuckets
+        }
+        if buckets.isEmpty { buckets = [usage.snapshot.fiveHour] }
+        let entries = buckets.map { b -> StatusBarEntry in
+            let pace = usage.pace(for: b.key)
+            return StatusBarEntry(id: b.key, label: b.title, pct: b.pct, level: pace.risk, expectedPct: pace.expectedPct)
+        }
+        let renderer = ImageRenderer(content: StatusBarContent(entries: entries, precise: usage.precise))
         renderer.scale = max(2, NSScreen.main?.backingScaleFactor ?? 2)
         if let image = renderer.nsImage {
             image.isTemplate = false
