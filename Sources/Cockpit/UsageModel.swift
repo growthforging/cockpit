@@ -93,7 +93,7 @@ final class UsageModel: ObservableObject {
     func flankChoiceName(_ side: Side) -> String {
         let key = side == .left ? leftFlankKey : rightFlankKey
         if key == "auto" { return "Auto · " + (flankBucket(side)?.title ?? "—") }
-        return flankChoices.first { $0.0 == key }?.1 ?? key
+        return flankChoices.first { $0.0 == key }?.1 ?? BucketInfo.title(for: key)
     }
 
     // Choices offered in Settings for each flank.
@@ -102,6 +102,11 @@ final class UsageModel: ObservableObject {
         for b in snapshot.buckets { out.append((b.key, b.title + (b.isModelSpecific ? " · weekly" : ""))) }
         for key in ["five_hour", "seven_day"] where !snapshot.buckets.contains(where: { $0.key == key }) {
             out.append((key, BucketInfo.title(for: key)))
+        }
+        // A side pinned to a window the current source doesn't carry (Fable while on the
+        // token ping) stays selectable and is named, not shown as a raw key.
+        for pref in [leftFlankKey, rightFlankKey] where pref != "auto" && pref != "none" && !out.contains(where: { $0.0 == pref }) {
+            out.append((pref, BucketInfo.title(for: pref) + " · unavailable"))
         }
         out.append(("none", "Nothing"))
         return out

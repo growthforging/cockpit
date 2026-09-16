@@ -67,7 +67,7 @@ struct UsageTab: View {
         case .denied: return "Allow Keychain for Fable %"
         case .notFound: return "No Claude Code login found"
         case .noScope: return "Login lacks usage scope"
-        case .failed: return "Retry Claude Code login"
+        case .failed(let why): return why
         }
     }
 }

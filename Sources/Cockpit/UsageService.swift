@@ -41,21 +41,26 @@ actor UsageService {
         var loginState: LoginState = .off
 
         if useLogin {
-            switch ClaudeCodeLogin.current(allowKeychain: allowKeychain) {
+            switch await ClaudeCodeLogin.current(allowKeychain: allowKeychain) {
             case .success(let t):
                 do {
                     return FetchResult(snapshot: try await fetchUsageEndpoint(token: t.accessToken), loginState: .connected)
                 } catch UsageError.unauthorized {
+                    // The token died early: renew it and go again.
                     ClaudeCodeLogin.clearCache()
-                    if allowKeychain, case .success(let fresh) = ClaudeCodeLogin.readKeychain(),
+                    if allowKeychain, case .success(let fresh) = await ClaudeCodeLogin.fromKeychain(forceRefresh: true),
                        let snap = try? await fetchUsageEndpoint(token: fresh.accessToken) {
                         return FetchResult(snapshot: snap, loginState: .connected)
                     }
-                    loginState = .failed("login expired · use Claude Code once to refresh it")
+                    loginState = .failed("Login expired · run `claude`, then /login")
                 } catch UsageError.forbidden {
                     loginState = .noScope
+                } catch UsageError.http(let code) {
+                    loginState = .failed("usage endpoint answered HTTP \(code)")
+                } catch UsageError.empty {
+                    loginState = .failed("usage endpoint returned no windows")
                 } catch {
-                    loginState = .failed("usage endpoint unreachable")
+                    loginState = .failed("usage endpoint unreachable · \((error as NSError).code)")
                 }
             case .failure(let f):
                 switch f {
@@ -63,6 +68,8 @@ actor UsageService {
                 case .denied: loginState = .denied
                 case .malformed: loginState = .failed("login item unreadable")
                 case .noScope: loginState = .noScope
+                case .expired: loginState = .failed("Login expired · run `claude`, then /login")
+                case .refreshFailed(let why): loginState = .failed("Couldn't renew the login · \(why)")
                 }
             }
         }
@@ -104,13 +111,20 @@ actor UsageService {
         req.setValue("claude-code/2.1.72", forHTTPHeaderField: "user-agent")
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw UsageError.badResponse }
+        if http.statusCode != 200 {
+            let snippet = (String(data: data.prefix(200), encoding: .utf8) ?? "").replacingOccurrences(of: "\n", with: " ")
+            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint HTTP \(http.statusCode): \(snippet)"
+        }
         switch http.statusCode {
         case 200: break
         case 401: throw UsageError.unauthorized
         case 403: throw UsageError.forbidden
         default: throw UsageError.http(http.statusCode)
         }
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw UsageError.badResponse }
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint body was not a JSON object"
+            throw UsageError.badResponse
+        }
 
         var buckets: [UsageBucket] = []
 
@@ -159,7 +173,10 @@ actor UsageService {
             else if let n = d["resets_at"] as? NSNumber { reset = Date(timeIntervalSince1970: n.doubleValue) }
             buckets.append(UsageBucket(key: key, pct: clamp(u), resetAt: reset))
         }
-        guard !buckets.isEmpty else { throw UsageError.empty }
+        guard !buckets.isEmpty else {
+            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint keys: \(obj.keys.sorted().joined(separator: ","))"
+            throw UsageError.empty
+        }
         buckets.sort { (BucketInfo.rank($0.key), $0.key) < (BucketInfo.rank($1.key), $1.key) }
 
         // Anthropic rounds to whole percents today; show a decimal only if one ever arrives.

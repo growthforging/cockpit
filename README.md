@@ -27,7 +27,9 @@ cp -R Cockpit.app /Applications/
 open /Applications/Cockpit.app
 ```
 
-`build.sh` signs with an Apple Development identity when one is in the Keychain.
+`build.sh` builds with Xcode's toolchain, or with the Command Line Tools when
+Xcode is waiting for its license to be accepted (`sudo xcodebuild -license accept`).
+It signs with an Apple Development identity when one is in the Keychain.
 That matters: macOS ties the Accessibility and Keychain grants to the signing
 identity, and an ad-hoc signature changes on every rebuild, silently voiding them.
 
@@ -37,8 +39,10 @@ identity, and an ad-hoc signature changes on every rebuild, silently voiding the
   the Scroll tab shows the state.
 - **Keychain** — per-model usage comes from Anthropic's usage endpoint, which
   needs the login Claude Code keeps in the Keychain (`claude` → `/login`).
-  macOS asks before Cockpit reads it; the token is cached locally and never
-  refreshed by Cockpit. Without it, a `claude setup-token` token pasted in
+  macOS asks before Cockpit reads it. Access tokens last hours, so Cockpit
+  renews the login the same way the CLI does (same endpoint, client id and
+  scopes) and writes the new pair back into the Keychain item, keeping the
+  CLI logged in. Without a login, a `claude setup-token` token pasted in
   Settings gives the session and weekly numbers from the rate-limit headers.
 
 Everything Cockpit stores lives in `~/.cockpit`. Anthropic reports whole

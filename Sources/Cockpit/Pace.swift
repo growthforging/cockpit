@@ -44,7 +44,8 @@ enum PaceVerdict {
         case .measuring: return "measuring pace…"
         case .blocked: return "limit reached"
         case .dry(let early, _): return "runs dry \(fmtDuration(early)) early"
-        case .safe(let finish, let unused, _):
+        case .safe(let finish, let unused, let rate):
+            if finish < 0.5, rate <= 0.01 { return "nothing used yet" }
             if unused <= 3 { return "finishes right at the line" }
             return "finishes ~\(Int(finish.rounded()))% · \(Int(unused.rounded()))% unused"
         }

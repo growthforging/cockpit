@@ -4,35 +4,148 @@ import Security
 // The per-model breakdown (Fable, Opus, …) only comes from /api/oauth/usage, and that
 // endpoint needs the `user:profile` scope, which `claude setup-token` tokens lack.
 // The Claude Code login on this Mac has it. It lives in a Keychain item whose
-// service is "Claude Code-credentials" (possibly suffixed); macOS asks the user
-// before handing the secret over, and a "Deny" is remembered so the prompt never nags.
+// service is "Claude Code-credentials"; macOS asks the user before handing the secret
+// over, and a "Deny" is remembered so the prompt never nags.
 //
-// The access token is cached (0600) so rebuilds don't re-prompt while it's valid.
-// Cockpit never refreshes the token itself: rotating it could log Claude Code out.
+// Access tokens last hours. The CLI only renews them when it runs, so Cockpit renews
+// them itself exactly the way the CLI does (same endpoint, same client id, same
+// scopes) and writes the new pair back into the same item, keeping the CLI logged in.
+// The current access token is cached (0600) so rebuilds don't re-prompt while it's valid.
 struct ClaudeCodeToken: Codable {
     var accessToken: String
     var expiresAt: Date?
     var scopes: [String]
     var subscription: String?
+    var refreshToken: String? = nil   // only cached when the Keychain write-back failed
 }
 
 enum ClaudeCodeLogin {
     private static let service = "Claude Code-credentials"
+    private static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!   // Claude Code's TOKEN_URL
+    private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"                     // Claude Code's public client
+    private static let defaultScopes = ["user:inference", "user:profile"]
 
-    enum Failure: Error { case notFound, denied, malformed, noScope }
+    enum Failure: Error, Equatable { case notFound, denied, malformed, noScope, expired, refreshFailed(String) }
 
-    // What the last Keychain search saw (service names only), for usage-state.json.
+    // What the last Keychain search / refresh saw (never the secret), for usage-state.json.
     nonisolated(unsafe) static var lastDiagnostic = ""
 
-    static func current(allowKeychain: Bool) -> Result<ClaudeCodeToken, Failure> {
+    struct Record {
+        var service: String
+        var account: String
+        var json: [String: Any]
+        var oauth: [String: Any]
+        var token: ClaudeCodeToken
+        var refreshToken: String?
+    }
+
+    static func current(allowKeychain: Bool) async -> Result<ClaudeCodeToken, Failure> {
         if let cached = readCache(), let exp = cached.expiresAt, exp.timeIntervalSinceNow > 300 {
             return .success(cached)
         }
         guard allowKeychain else { return .failure(.notFound) }
-        return readKeychain()
+        return await fromKeychain(forceRefresh: false)
     }
 
-    static func readKeychain() -> Result<ClaudeCodeToken, Failure> {
+    // forceRefresh: the server just rejected the access token, whatever its expiry says.
+    static func fromKeychain(forceRefresh: Bool) async -> Result<ClaudeCodeToken, Failure> {
+        switch readRecord() {
+        case .failure(let f):
+            return .failure(f)
+        case .success(let rec):
+            if !forceRefresh, let exp = rec.token.expiresAt, exp.timeIntervalSinceNow > 120 {
+                writeCache(rec.token)
+                return .success(rec.token)
+            }
+            return await refresh(rec)
+        }
+    }
+
+    // MARK: - Renewal
+
+    private static func refresh(_ rec: Record) async -> Result<ClaudeCodeToken, Failure> {
+        // A refresh token the write-back couldn't store is newer than the Keychain's.
+        var tokensToTry: [String] = []
+        if let stashed = readCache()?.refreshToken, !stashed.isEmpty { tokensToTry.append(stashed) }
+        if let kc = rec.refreshToken, !kc.isEmpty, !tokensToTry.contains(kc) { tokensToTry.append(kc) }
+        guard !tokensToTry.isEmpty else { return .failure(.expired) }
+
+        var lastFailure: Failure = .expired
+        for rt in tokensToTry {
+            switch await requestRefresh(refreshToken: rt, scopes: rec.token.scopes, subscription: rec.token.subscription) {
+            case .success(let pair):
+                let stored = writeBack(rec, token: pair.0, refreshToken: pair.1)
+                var cached = pair.0
+                if !stored { cached.refreshToken = pair.1 }
+                writeCache(cached)
+                lastDiagnostic += stored ? " · renewed + written back" : " · renewed (kept locally)"
+                return .success(pair.0)
+            case .failure(let f):
+                lastFailure = f
+                if case .refreshFailed = f { return .failure(f) }   // network trouble: the other token won't help
+            }
+        }
+        return .failure(lastFailure)
+    }
+
+    private static func requestRefresh(refreshToken: String, scopes: [String], subscription: String?) async -> Result<(ClaudeCodeToken, String), Failure> {
+        var req = URLRequest(url: tokenURL)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        let scopeList = scopes.isEmpty ? defaultScopes : scopes
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": clientID,
+            "scope": scopeList.joined(separator: " "),
+        ])
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else { return .failure(.refreshFailed("no response")) }
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            guard http.statusCode == 200, let access = obj?["access_token"] as? String, !access.isEmpty else {
+                let why = (obj?["error_description"] as? String) ?? (obj?["error"] as? String) ?? "HTTP \(http.statusCode)"
+                lastDiagnostic += " · refresh refused: \(why)"
+                return .failure((400...401).contains(http.statusCode) ? .expired : .refreshFailed(why))
+            }
+            let newRefresh = (obj?["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? refreshToken
+            let expiresIn = (obj?["expires_in"] as? NSNumber)?.doubleValue ?? 3600
+            let newScopes = (obj?["scope"] as? String).map { $0.split(separator: " ").map(String.init) } ?? scopeList
+            let token = ClaudeCodeToken(accessToken: access, expiresAt: Date().addingTimeInterval(expiresIn), scopes: newScopes, subscription: subscription)
+            return .success((token, newRefresh))
+        } catch {
+            return .failure(.refreshFailed("offline"))
+        }
+    }
+
+    // Same fields the CLI writes (accessToken, refreshToken, expiresAt in ms, scopes), so
+    // the next `claude` finds a live login instead of a rotated-out one.
+    private static func writeBack(_ rec: Record, token: ClaudeCodeToken, refreshToken: String) -> Bool {
+        var json = rec.json
+        var oauth = rec.oauth
+        oauth["accessToken"] = token.accessToken
+        oauth["refreshToken"] = refreshToken
+        oauth["expiresAt"] = Int((token.expiresAt ?? Date()).timeIntervalSince1970 * 1000)
+        oauth["scopes"] = token.scopes
+        json["claudeAiOauth"] = oauth
+        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return false }
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: rec.service,
+        ]
+        if !rec.account.isEmpty { query[kSecAttrAccount as String] = rec.account }
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status != errSecSuccess {
+            lastDiagnostic += " · Keychain write-back failed (\(status))"
+            return false
+        }
+        return true
+    }
+
+    // MARK: - Reading
+
+    private static func readRecord() -> Result<Record, Failure> {
         let candidates = findCandidates()
         lastDiagnostic = candidates.isEmpty
             ? "no Keychain item with a Claude Code credentials service name"
@@ -48,7 +161,7 @@ enum ClaudeCodeLogin {
         var lastFailure: Failure = .notFound
         for (svc, acct) in tries {
             switch readItem(service: svc, account: acct) {
-            case .success(let t): return .success(t)
+            case .success(let r): return .success(r)
             case .failure(let f):
                 lastFailure = f
                 if f == .denied { return .failure(.denied) }
@@ -81,11 +194,12 @@ enum ClaudeCodeLogin {
         }
     }
 
-    private static func readItem(service: String, account: String?) -> Result<ClaudeCodeToken, Failure> {
+    private static func readItem(service: String, account: String?) -> Result<Record, Failure> {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecReturnData as String: true,
+            kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         if let account, !account.isEmpty { query[kSecAttrAccount as String] = account }
@@ -94,9 +208,10 @@ enum ClaudeCodeLogin {
         guard status == errSecSuccess else {
             return .failure(status == errSecItemNotFound ? .notFound : .denied)
         }
-        guard let data = item as? Data,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = obj["claudeAiOauth"] as? [String: Any],
+        guard let dict = item as? [String: Any],
+              let data = dict[kSecValueData as String] as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty
         else { return .failure(.malformed) }
 
@@ -109,9 +224,11 @@ enum ClaudeCodeLogin {
             subscription: oauth["subscriptionType"] as? String
         )
         if !scopes.isEmpty, !scopes.contains("user:profile") { return .failure(.noScope) }
-        writeCache(t)
-        return .success(t)
+        let acct = dict[kSecAttrAccount as String] as? String ?? account ?? ""
+        return .success(Record(service: service, account: acct, json: json, oauth: oauth, token: t, refreshToken: oauth["refreshToken"] as? String))
     }
+
+    // MARK: - Cache
 
     static func clearCache() { try? FileManager.default.removeItem(at: CockpitPaths.loginCache) }
 
