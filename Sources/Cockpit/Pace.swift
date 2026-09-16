@@ -88,13 +88,20 @@ enum PaceEngine {
             return Pace(verdict: .measuring, risk: measuringRisk(pct), expectedPct: expected)
         }
 
+        // Burn rate: the recent window when there's enough history, otherwise the
+        // window's own average pace so far (fresh install, or a source that just came
+        // back) once enough of the window has elapsed for that average to mean something.
         let recent = series.filter { now.timeIntervalSince($0.t) <= lookback }
-        guard let first = recent.first, let last = recent.last, last.t.timeIntervalSince(first.t) >= minSpan else {
-            return Pace(verdict: .measuring, risk: measuringRisk(pct), expectedPct: expected)
+        let rate: Double
+        if let first = recent.first, let last = recent.last, last.t.timeIntervalSince(first.t) >= minSpan {
+            rate = max(0, (last.pct - first.pct) / (last.t.timeIntervalSince(first.t) / 3600))
+        } else {
+            let elapsed = windowLength - timeLeft
+            guard elapsed >= windowLength * 0.15 else {
+                return Pace(verdict: .measuring, risk: measuringRisk(pct), expectedPct: expected)
+            }
+            rate = pct / (elapsed / 3600)
         }
-
-        let hours = last.t.timeIntervalSince(first.t) / 3600
-        let rate = max(0, (last.pct - first.pct) / hours)
         let timeLeftHours = timeLeft / 3600
 
         if rate <= 0.01 {

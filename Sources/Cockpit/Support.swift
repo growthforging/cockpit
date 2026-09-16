@@ -118,6 +118,19 @@ enum Diagnostics {
         }
     }
 
+    // The verdict per window: ~/.cockpit/pace-state.json
+    static func writePaces(_ paces: [String: Pace]) {
+        CockpitPaths.ensure()
+        var s: [String: Any] = [:]
+        for (key, p) in paces {
+            s[key] = ["verdict": p.verdict.compact, "risk": "\(p.risk)", "expectedPct": (p.expectedPct * 10).rounded() / 10]
+        }
+        s["updatedAt"] = ISO8601DateFormatter().string(from: Date())
+        if let data = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: CockpitPaths.dir.appendingPathComponent("pace-state.json"))
+        }
+    }
+
     static func write(_ state: [String: Any]) {
         CockpitPaths.ensure()
         var s = state

@@ -172,6 +172,7 @@ final class UsageModel: ObservableObject {
             next[b.key] = p
         }
         paces = next
+        Diagnostics.writePaces(next)
         for b in snap.buckets { notifyIfNeeded(bucket: b, pace: next[b.key] ?? .unknown) }
     }
 
