@@ -38,7 +38,9 @@ cp Info.plist "$BUNDLE/Contents/Info.plist"
 # silently void the grants, an Apple Development identity stays the same.
 IDENTITY="${CODESIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
-    IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '"Apple Development: [^"]+"' | head -1 | tr -d '"')
+    # No certificate in the Keychain is the normal case for a first-time builder and for
+    # CI, and grep exiting 1 there must not abort the build under `set -e`.
+    IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '"Apple Development: [^"]+"' | head -1 | tr -d '"' || true)
 fi
 if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" --timestamp=none "$BUNDLE" 2>/dev/null; then
     echo "▸ Signed with: $IDENTITY"
