@@ -6,7 +6,7 @@ Hover the notch and it springs open. Click it and it stays open.
 
 ![The Cockpit island open below the notch with the usage panel visible](docs/cockpit.png)
 
-Runs on macOS 14 Sonoma and later. The island needs a Mac with a notch, which means any MacBook Pro or Air from 2021 onward. On every other Mac, and whenever a second display is attached, the same panel opens from a menu-bar icon carrying the same readouts.
+Runs on macOS 14 Sonoma and later. The island needs a Mac with a notch: the 14 and 16 inch MacBook Pro from 2021, or the MacBook Air from 2022. Every other Mac gets the same panel from a menu-bar icon instead, with the same readouts on it. That icon also appears whenever a second display is attached.
 
 ## Usage
 
@@ -23,7 +23,7 @@ Two of those numbers also sit either side of the notch while the island is close
 Cockpit tries three sources in order, and the panel always says which one answered.
 
 1. The login that the Claude Code command line keeps in your Keychain. This is the only source that carries per-model windows.
-2. A token from `claude setup-token`, pasted into Settings. One 1-token ping, and the session and weekly percentages come back in the response headers.
+2. A token from `claude setup-token`, pasted into Settings, or `CLAUDE_CODE_OAUTH_TOKEN` in the environment, which wins over the pasted one. Either way it costs one 1-token ping, and the session and weekly percentages come back in the response headers.
 3. Neither of those, in which case Cockpit adds up the cache tokens in your local `~/.claude` transcripts and divides by a fixed budget.
 
 That third one is a guess, and the panel labels it as such. The budget was measured against one particular subscription, so on a different plan the number will be wrong in a direction nobody can predict. Treat it as a rough shape, and connect one of the first two sources for real figures.
@@ -45,17 +45,16 @@ macOS has one natural-scrolling switch shared by the trackpad and the mouse, whi
 ```sh
 git clone https://github.com/growthforging/cockpit.git
 cd cockpit
-./build.sh
-cp -R Cockpit.app /Applications/ && open /Applications/Cockpit.app
+./build.sh && cp -R Cockpit.app /Applications/ && open /Applications/Cockpit.app
 ```
 
-You need Xcode 15 or later, or the Command Line Tools. `build.sh` compiles, assembles the app bundle, and signs it.
+You need Xcode 15.3 or later, for Swift 5.10, or an equivalent Command Line Tools install. `build.sh` compiles, assembles the app bundle, and signs it.
 
 One detail is worth knowing before you grant any permissions. macOS ties Accessibility and Keychain grants to an app's code signature.
 
 If your Keychain holds an Apple Development identity, `build.sh` finds it and uses it, so your grants survive every rebuild. Without one it falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
 
-There is no prebuilt download, on purpose. A binary signed this way arrives quarantined and asks you to defeat Gatekeeper by hand, which is worse than the four commands above.
+There is no prebuilt download, on purpose. A binary signed this way arrives quarantined and asks you to defeat Gatekeeper by hand, which is worse than the three commands above.
 
 ## Permissions
 
@@ -63,7 +62,7 @@ Cockpit works in some useful form whatever you refuse.
 
 ### Accessibility
 
-Reversing wheel events requires it, and so does sending Command-V when you paste from the clipboard list. macOS shows its dialog once, on the launch where a wheel flip is first attempted, and never opens it again on its own. Refuse it and the clipboard list still copies on click, while the usage panel carries on regardless.
+Reversing wheel events requires it, and so does sending Command-V when you paste from the clipboard list. macOS asks the first time you switch the wheel flip on, then never opens that dialog again by itself. Nothing prompts you at launch. If you refuse, the clipboard list goes on copying when you click a row, and the usage panel is unaffected.
 
 ### Keychain
 
@@ -77,7 +76,7 @@ Asked the first time a pace alert would actually fire, which keeps launch quiet.
 
 ### Your screenshot folder
 
-Screenshots normally land on the Desktop, and macOS asks before any app may read that folder. Refuse it, or switch screenshot capture off in Settings, and the rest of the clipboard history is unaffected.
+Screenshots go wherever you have pointed macOS, usually the Desktop, and macOS asks before any app may read that folder. Cockpit looks there only while screenshot capture is switched on in Settings, so leaving that off means the prompt never arrives. The rest of the clipboard history works either way.
 
 ## Privacy
 
@@ -113,7 +112,7 @@ Cockpit writes down what it did. These three files in `~/.cockpit` hold the answ
 
 Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made.
 
-A bar showing a dash has no data for that window yet. One stuck on "measuring pace" has too little history to project from; projection starts once roughly 15% of a window has elapsed.
+A bar showing a dash has no data for that window yet. One reading "measuring pace" has too few samples to project from, which takes a few minutes on the session window and a few hours on a weekly one. Where samples are thin, Cockpit falls back to the window's own average once about 15% of it has elapsed. The local-log estimate carries no reset time at all, so its bars stay on "measuring pace" until you connect one of the other two sources.
 
 When the usage panel reports an expired login, run `claude` once and sign in. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back.
 

@@ -38,6 +38,8 @@ final class ScrollFlipEngine: ObservableObject {
         didSet {
             scrollFlipActive = enabled
             UserDefaults.standard.set(enabled, forKey: "scrollFlipEnabled")
+            // Switching it on is the moment the permission is actually wanted.
+            if enabled, !AXIsProcessTrusted() { requestPermission(prompt: true) }
         }
     }
     @Published private(set) var axTrusted = AXIsProcessTrusted()
@@ -46,7 +48,15 @@ final class ScrollFlipEngine: ObservableObject {
     private var retry: Timer?
 
     init() {
-        let stored = (UserDefaults.standard.object(forKey: "scrollFlipEnabled") as? Bool) ?? false
+        let d = UserDefaults.standard
+        // This used to default ON, and the key is only written when the toggle moves, so a
+        // user who was happy with it has no key at all. The Accessibility marker proves a
+        // previous install, and seeds the old default for them; only genuinely new installs
+        // get the safer OFF.
+        if d.object(forKey: "scrollFlipEnabled") == nil, d.bool(forKey: "axPromptShown") {
+            d.set(true, forKey: "scrollFlipEnabled")
+        }
+        let stored = (d.object(forKey: "scrollFlipEnabled") as? Bool) ?? false
         enabled = stored
         scrollFlipActive = stored
     }
@@ -59,8 +69,10 @@ final class ScrollFlipEngine: ObservableObject {
         // Ask with the system dialog once, ever. After that the Scroll tab shows the
         // state and its button re-asks on demand. Nagging on every launch is what made
         // the old grant feel broken.
+        // Only ask when the flip is actually switched on. Someone running Cockpit for the
+        // usage gauge alone should never see this dialog.
         let d = UserDefaults.standard
-        if !d.bool(forKey: "axPromptShown") {
+        if enabled, !d.bool(forKey: "axPromptShown") {
             d.set(true, forKey: "axPromptShown")
             requestPermission(prompt: true)
         }

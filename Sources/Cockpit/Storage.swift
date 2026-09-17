@@ -40,16 +40,21 @@ enum CockpitPaths {
         }
     }
 
-    // Tightens whatever an older build left world-readable, once per launch.
+    // Tightens whatever an older build left world-readable, once per launch. It walks the
+    // directory rather than a list of names, so nothing a future version adds is missed.
     static func repairPermissions() {
         ensure()
         let fm = FileManager.default
-        var files = [token, history, clips, state, usageState, paceState, loginCache]
-        if let images = try? fm.contentsOfDirectory(at: clipImages, includingPropertiesForKeys: nil) {
-            files += images
-        }
-        for file in files where fm.fileExists(atPath: file.path) {
-            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for case let url as URL in walker {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            // An atomic write that never completed leaves a 0644 sibling behind holding a
+            // whole clipboard history, or a live token. Nothing else ever cleans them up.
+            if !isDirectory, url.lastPathComponent.contains(".sb-") {
+                try? fm.removeItem(at: url)
+                continue
+            }
+            try? fm.setAttributes([.posixPermissions: isDirectory ? 0o700 : 0o600], ofItemAtPath: url.path)
         }
     }
 }

@@ -19,7 +19,7 @@ enum IslandMetrics {
     static let clipsListHeight: CGFloat = 6 * 38 + 10
     static let cardHeight: CGFloat = 112
     static let modelRowHeight: CGFloat = 84
-    static let noteHeight: CGFloat = 30
+    static let noteHeight: CGFloat = 56
 
     static func contentHeight(tab: IslandTab, modelBuckets: Int, hasNote: Bool) -> CGFloat {
         switch tab {

@@ -164,6 +164,7 @@ final class NotchHUD {
         island.expanded = false
         island.pinned = false
         keyboardMode = false
+        lastMouse = NSPoint(x: -1, y: -1)
     }
 
     func applyPrefs() {
@@ -269,6 +270,9 @@ final class NotchHUD {
         island.expanded = value
         insideSince = nil
         outsideSince = nil
+        // The cached position went stale while the island was open; without this a cursor
+        // that never moves can never re-arm the hover.
+        lastMouse = NSPoint(x: -1, y: -1)
         panel?.ignoresMouseEvents = !value
         if value { panel?.orderFrontRegardless() }
     }

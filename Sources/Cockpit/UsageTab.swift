@@ -34,7 +34,9 @@ struct UsageTab: View {
             Text(note)
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ink.dim)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(3)
+                .minimumScaleFactor(0.85)
+                .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)

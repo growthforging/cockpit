@@ -73,7 +73,12 @@ enum ClaudeCodeLogin {
         case .failure(let f):
             return .failure(f)
         case .success(let rec):
-            if !forceRefresh, let exp = rec.token.expiresAt, exp.timeIntervalSinceNow > 120 {
+            // A stash exists only because a write-back failed, which means the Keychain's
+            // access token is the one the server already rejected. Short-circuiting to it
+            // here would also write a record with no refreshToken over the cache and lose
+            // the only live copy, so renew instead.
+            let stash = readCache()?.refreshToken
+            if !forceRefresh, stash == nil, let exp = rec.token.expiresAt, exp.timeIntervalSinceNow > 120 {
                 writeCache(rec.token)
                 return .success(rec.token)
             }
@@ -102,6 +107,13 @@ enum ClaudeCodeLogin {
                 return .success(pair.0)
             case .failure(let f):
                 lastFailure = f
+                // A refresh token the server has rejected is dead. Drop it so the next poll
+                // does not replay it, which rotation-reuse detection reads as theft.
+                if f == .expired, var cached = readCache(), cached.refreshToken == rt {
+                    cached.refreshToken = nil
+                    clearCache()
+                    writeCache(cached)
+                }
                 if case .refreshFailed = f { return .failure(f) }   // network trouble: the other token won't help
             }
         }
@@ -294,6 +306,11 @@ enum ClaudeCodeLogin {
 
     private static func writeCache(_ t: ClaudeCodeToken) {
         CockpitPaths.ensure()
+        // Never drop a refresh token already on disk: it can be the only live copy.
+        var t = t
+        if t.refreshToken == nil, let existing = readCache()?.refreshToken, !existing.isEmpty {
+            t.refreshToken = existing
+        }
         guard let data = try? JSONEncoder().encode(t) else { return }
         CockpitPaths.writePrivate(data, to: CockpitPaths.loginCache)
     }

@@ -35,6 +35,7 @@ final class UsageModel: ObservableObject {
     private var notified: Set<String> = []
     private var wakeObserver: NSObjectProtocol?
     private var paceSamples: [PaceSample]?
+    private var refreshTask: Task<Void, Never>?
 
     init() {
         let d = UserDefaults.standard
@@ -123,8 +124,22 @@ final class UsageModel: ObservableObject {
 
     // MARK: - Refresh
 
+    // Renewals must never overlap. Two in flight can POST the same refresh token and leave
+    // the rotated-out one in the Keychain, so a caller asking for a forced refresh gets the
+    // result of the run already in progress, which is equally fresh.
     func refresh(force: Bool = false) async {
-        if isRefreshing && !force { return }
+        _ = force
+        if let existing = refreshTask {
+            await existing.value
+            return
+        }
+        let task = Task { [weak self] in await self?.performRefresh() ?? () }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         isRefreshing = true
         let r = await service.fetch(useLogin: useClaudeCodeLogin && !loginDeclined, allowKeychain: true)
         snapshot = r.snapshot

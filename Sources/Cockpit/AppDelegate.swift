@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if buckets.isEmpty { buckets = [usage.snapshot.fiveHour] }
         let entries = buckets.map { b -> StatusBarEntry in
             let pace = usage.pace(for: b.key)
-            return StatusBarEntry(id: b.key, label: b.title, pct: b.pct, level: pace.risk, expectedPct: pace.expectedPct)
+            return StatusBarEntry(id: b.key, label: b.title, pct: b.pct, level: pace.risk, expectedPct: pace.expectedPct, synthesized: b.synthesized)
         }
         let renderer = ImageRenderer(content: StatusBarContent(entries: entries, precise: usage.precise))
         renderer.scale = max(2, NSScreen.main?.backingScaleFactor ?? 2)

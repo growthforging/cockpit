@@ -32,7 +32,14 @@ final class ClipboardStore: ObservableObject {
     // Set by the app delegate when RegisterEventHotKey refuses, which usually means
     // another launcher already owns ⇧⌘V.
     @Published var hotkeyUnavailable = false
-    @Published var screenshotsEnabled: Bool { didSet { UserDefaults.standard.set(screenshotsEnabled, forKey: "clipsScreenshots") } }
+    @Published var screenshotsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(screenshotsEnabled, forKey: "clipsScreenshots")
+            // Reading the folder is what raises the access prompt, so the watch follows the
+            // switch rather than running regardless of it.
+            screenshotsEnabled ? startScreenshotWatch() : stopScreenshotWatch()
+        }
+    }
     @Published var maxItems: Int {
         didSet {
             UserDefaults.standard.set(maxItems, forKey: "clipsMax")
@@ -75,7 +82,7 @@ final class ClipboardStore: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
-        startScreenshotWatch()
+        if screenshotsEnabled { startScreenshotWatch() }
     }
 
     var pinnedCount: Int { items.filter(\.pinned).count }
@@ -187,7 +194,17 @@ final class ClipboardStore: ObservableObject {
         return fm.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
     }
 
+    private func stopScreenshotWatch() {
+        shotWork?.cancel()
+        shotWork = nil
+        shotSource?.cancel()
+        shotSource = nil
+        shotDir = nil
+        shotSeen.removeAll()
+    }
+
     private func startScreenshotWatch() {
+        guard shotSource == nil else { return }
         let dir = Self.screenshotDirectory
         shotDir = dir
         shotSeen = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])

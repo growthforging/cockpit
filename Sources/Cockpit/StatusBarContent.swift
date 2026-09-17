@@ -6,6 +6,7 @@ struct StatusBarEntry: Identifiable {
     var pct: Double
     var level: Level
     var expectedPct: Double
+    var synthesized = false
 }
 
 // The menu-bar chip, for screens without a notch. A monitor's menu bar has room, so it
@@ -31,17 +32,19 @@ struct StatusBarContent: View {
                     }
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.3)).frame(width: trackWidth, height: barHeight)
-                        Capsule().fill(e.level.color).frame(width: max(3, trackWidth * CGFloat(min(100, e.pct)) / 100), height: barHeight)
-                        if e.expectedPct > 2, e.expectedPct < 99 {
+                        if !e.synthesized {
+                            Capsule().fill(e.level.color).frame(width: max(3, trackWidth * CGFloat(min(100, e.pct)) / 100), height: barHeight)
+                        }
+                        if !e.synthesized, e.expectedPct > 2, e.expectedPct < 99 {
                             Rectangle().fill(Color.white.opacity(0.9)).frame(width: 1.5, height: barHeight + 3)
                                 .offset(x: trackWidth * CGFloat(e.expectedPct) / 100 - 0.75)
                         }
                     }
                     .frame(width: trackWidth, height: barHeight)
-                    Text(fmtPct(e.pct, precise: precise))
+                    Text(e.synthesized ? "—" : fmtPct(e.pct, precise: precise))
                         .font(.system(size: 11.5, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(e.level.color)
+                        .foregroundStyle(e.synthesized ? Color.white.opacity(0.55) : e.level.color)
                 }
             }
         }
