@@ -1,5 +1,9 @@
 # Cockpit
 
+[![Build](https://github.com/growthforging/cockpit/actions/workflows/build.yml/badge.svg)](https://github.com/growthforging/cockpit/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/macOS-14%2B-lightgrey.svg)](#install)
+
 A macOS menu-bar app that puts three things in the notch of your MacBook: how much Claude usage you have left, everything you copied recently, and a switch that reverses your mouse wheel while the trackpad keeps scrolling normally.
 
 Hover the notch and it springs open. Click it and it stays open.
