@@ -26,7 +26,7 @@ echo "$OUT" | grep -E 'error:|Build complete' | tail -5
 BIN=".build/$CONFIG/$APP"
 [ -f "$BIN" ] || { echo "✗ Build product not found at $BIN" >&2; exit 1; }
 
-echo "▸ Assembling $BUNDLE…"
+echo "▸ Assembling ${BUNDLE}…"
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN" "$BUNDLE/Contents/MacOS/$APP"
