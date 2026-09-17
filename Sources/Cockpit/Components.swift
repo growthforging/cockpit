@@ -28,11 +28,13 @@ struct PaceBar: View {
             let tickX: CGFloat = w * CGFloat(pace.expectedPct) / 100 - 1
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.13))
-                Capsule().fill(pace.risk.color.opacity(0.24)).frame(width: ghostW)
-                Capsule()
-                    .fill(pace.risk.color)
-                    .frame(width: fillW)
-                    .shadow(color: pace.risk.color.opacity(0.45), radius: 3)
+                if pct > 0 { Capsule().fill(pace.risk.color.opacity(0.24)).frame(width: ghostW) }
+                if pct > 0 {
+                    Capsule()
+                        .fill(pace.risk.color)
+                        .frame(width: fillW)
+                        .shadow(color: pace.risk.color.opacity(0.45), radius: 3)
+                }
                 if pace.expectedPct > 1.5, pace.expectedPct < 98.5 {
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.white.opacity(0.85))

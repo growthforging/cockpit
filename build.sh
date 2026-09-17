@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build Cockpit.app (release) and assemble a proper macOS .app bundle.
 set -euo pipefail
+trap 'status=$?; [ $status -ne 0 ] && echo "✗ build.sh failed (line $LINENO, exit $status)" >&2' ERR
 cd "$(dirname "$0")"
 
 APP="Cockpit"
@@ -10,10 +11,10 @@ CONFIG="${1:-release}"
 echo "▸ Compiling ($CONFIG)…"
 # Xcode's toolchain first. An Xcode update that hasn't had its license accepted yet
 # refuses to build with a message rather than a compile error, so fall back to the
-# Command Line Tools when they carry the macOS 26 SDK, and never pretend success.
+# Command Line Tools when they carry a macOS SDK, and never pretend success.
 CLT=/Library/Developer/CommandLineTools
 if ! OUT=$(swift build -c "$CONFIG" 2>&1); then
-    if echo "$OUT" | grep -q "Xcode license" && [ -d "$CLT/SDKs/MacOSX26.sdk" ]; then
+    if echo "$OUT" | grep -q "Xcode license" && [ -d "$CLT/SDKs" ]; then
         echo "  Xcode wants its license accepted (sudo xcodebuild -license accept); building with the Command Line Tools instead."
         OUT=$(DEVELOPER_DIR="$CLT" swift build -c "$CONFIG" 2>&1) || { echo "$OUT" | tail -40; echo "✗ Build failed" >&2; exit 1; }
     else
@@ -39,10 +40,10 @@ IDENTITY="${CODESIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
     IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '"Apple Development: [^"]+"' | head -1 | tr -d '"')
 fi
-if [ -n "$IDENTITY" ] && codesign --force --deep --sign "$IDENTITY" --timestamp=none "$BUNDLE" 2>/dev/null; then
+if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" --timestamp=none "$BUNDLE" 2>/dev/null; then
     echo "▸ Signed with: $IDENTITY"
 else
-    codesign --force --deep --sign - "$BUNDLE" >/dev/null 2>&1 || true
+    codesign --force --sign - "$BUNDLE" >/dev/null 2>&1 || true
     echo "▸ Signed ad-hoc (no identity available; permissions will reset on each rebuild)"
 fi
 

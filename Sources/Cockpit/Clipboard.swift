@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import CryptoKit
 import UniformTypeIdentifiers
 
@@ -28,6 +29,9 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var items: [ClipItem] = []
     @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "clipsEnabled") } }
     @Published var hotkeyEnabled: Bool { didSet { UserDefaults.standard.set(hotkeyEnabled, forKey: "clipsHotkey") } }
+    // Set by the app delegate when RegisterEventHotKey refuses, which usually means
+    // another launcher already owns ⇧⌘V.
+    @Published var hotkeyUnavailable = false
     @Published var screenshotsEnabled: Bool { didSet { UserDefaults.standard.set(screenshotsEnabled, forKey: "clipsScreenshots") } }
     @Published var maxItems: Int {
         didSet {
@@ -134,7 +138,7 @@ final class ClipboardStore: ObservableObject {
         let id = UUID()
         let file = "clips/\(id.uuidString).png"
         CockpitPaths.ensure()
-        try? png.write(to: CockpitPaths.dir.appendingPathComponent(file), options: .atomic)
+        CockpitPaths.writePrivate(png, to: CockpitPaths.dir.appendingPathComponent(file))
         add(ClipItem(id: id, kind: .image, text: nil, preview: "Image · \(rep.pixelsWide)×\(rep.pixelsHigh)", imageFile: file, hash: hash,
                      date: Date(), appBundleID: bundle, appName: appName, pinned: false, chars: 0))
         return true
@@ -211,10 +215,24 @@ final class ClipboardStore: ObservableObject {
         for name in names where !shotSeen.contains(name) {
             shotSeen.insert(name)
             guard screenshotsEnabled, !name.hasPrefix("."),
-                  name.lowercased().hasPrefix("screenshot"),
                   exts.contains((name as NSString).pathExtension.lowercased()) else { continue }
-            importScreenshot(dir.appendingPathComponent(name))
+            let url = dir.appendingPathComponent(name)
+            // macOS names the file in the user's language: "Bildschirmfoto…",
+            // "Capture d'écran…", "Снимок экрана…". The English prefix is only a fast
+            // path; Spotlight's screen-capture flag is what actually identifies one.
+            guard name.lowercased().hasPrefix("screenshot") || Self.isScreenCapture(url) else { continue }
+            importScreenshot(url)
         }
+    }
+
+    private static func isScreenCapture(_ url: URL) -> Bool {
+        guard let item = MDItemCreate(nil, url.path as CFString) else { return false }
+        for key in ["kMDItemIsScreenCapture", "kMDItemScreenCaptureType"] {
+            guard let value = MDItemCopyAttribute(item, key as CFString) else { continue }
+            if let number = value as? NSNumber, number.boolValue { return true }
+            if let text = value as? String, !text.isEmpty { return true }
+        }
+        return false
     }
 
     private func importScreenshot(_ url: URL) {
@@ -225,7 +243,7 @@ final class ClipboardStore: ObservableObject {
         let ext = url.pathExtension.isEmpty ? "png" : url.pathExtension.lowercased()
         let file = "clips/\(id.uuidString).\(ext)"
         CockpitPaths.ensure()
-        try? data.write(to: CockpitPaths.dir.appendingPathComponent(file), options: .atomic)
+        CockpitPaths.writePrivate(data, to: CockpitPaths.dir.appendingPathComponent(file))
         var size = ""
         if let rep = NSBitmapImageRep(data: data) { size = " · \(rep.pixelsWide)×\(rep.pixelsHigh)" }
         add(ClipItem(id: id, kind: .image, text: url.path, preview: url.deletingPathExtension().lastPathComponent + size, imageFile: file, hash: hash,
@@ -256,9 +274,12 @@ final class ClipboardStore: ObservableObject {
     // ⌘V into whatever app is frontmost. Needs Accessibility, which the scroll flip already has.
     static func sendPaste() {
         guard AXIsProcessTrusted() else { return }
+        // 9 is V on QWERTY only. On Dvorak or AZERTY that position is a different letter,
+        // so the layout in use decides which key to press.
+        let key = KeyLayout.virtualKey(for: "v") ?? 9
         let src = CGEventSource(stateID: .combinedSessionState)
-        let down = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true)
-        let up = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: false)
+        let down = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: true)
+        let up = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: false)
         down?.flags = .maskCommand
         up?.flags = .maskCommand
         down?.post(tap: .cghidEventTap)
@@ -334,7 +355,7 @@ final class ClipboardStore: ObservableObject {
         CockpitPaths.ensure()
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
-        if let data = try? enc.encode(items) { try? data.write(to: CockpitPaths.clips, options: .atomic) }
+        if let data = try? enc.encode(items) { CockpitPaths.writePrivate(data, to: CockpitPaths.clips) }
     }
 
     private func removeFile(of item: ClipItem) {

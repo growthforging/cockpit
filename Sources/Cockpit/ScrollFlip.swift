@@ -8,7 +8,7 @@ import ApplicationServices
 // (left untouched); a traditional wheel mouse sends *discrete* ones, which get
 // swallowed and re-posted with the opposite delta.
 
-nonisolated(unsafe) private var scrollFlipActive = true
+nonisolated(unsafe) private var scrollFlipActive = false
 nonisolated(unsafe) private var scrollTap: CFMachPort?
 private let syntheticTag: Int64 = 0x5350_4C50 // "SPLP": stamped on injected events
 
@@ -46,7 +46,7 @@ final class ScrollFlipEngine: ObservableObject {
     private var retry: Timer?
 
     init() {
-        let stored = (UserDefaults.standard.object(forKey: "scrollFlipEnabled") as? Bool) ?? true
+        let stored = (UserDefaults.standard.object(forKey: "scrollFlipEnabled") as? Bool) ?? false
         enabled = stored
         scrollFlipActive = stored
     }

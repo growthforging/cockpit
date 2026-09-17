@@ -22,6 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             print(NotchGeometry.describe())
             exit(0)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--shot") {
+            let path = i + 1 < CommandLine.arguments.count ? CommandLine.arguments[i + 1] : "docs/cockpit.png"
+            exit(Shot.render(to: path) ? 0 : 1)
+        }
 
         // One copy only: a second would double the pings and the gauges.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.growthforging.cockpit"
@@ -32,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
 
-        CockpitPaths.migrateFromMaxBar()
+        CockpitPaths.repairPermissions()
+        LaunchAtLogin.repairIfMoved()
         NSApp.setActivationPolicy(.accessory)
         SettingsWindowController.shared.configure(usage: usage, clips: clips, scroll: scroll)
 
@@ -152,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func setHotkey(_ on: Bool) {
         on ? hotkey.register() : hotkey.unregister()
+        clips.hotkeyUnavailable = on && hotkey.lastStatus != noErr
     }
 
     private func toggleClips() {

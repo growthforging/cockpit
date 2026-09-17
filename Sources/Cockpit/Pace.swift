@@ -139,18 +139,27 @@ enum PaceEngine {
         return []
     }
 
-    static func record(_ snapshot: UsageSnapshot, now: Date = Date()) -> [PaceSample] {
-        var samples = loadHistory()
+    // Kept separate from persistence so the caller holds the series in memory and the
+    // main thread never reads, decodes, re-encodes and writes the file every refresh.
+    static func appending(_ snapshot: UsageSnapshot, to existing: [PaceSample], now: Date) -> [PaceSample] {
         var b: [String: [Double]] = [:]
         for bucket in snapshot.buckets {
             b[bucket.key] = [bucket.pct, bucket.resetAt?.timeIntervalSince1970 ?? 0]
         }
+        var samples = existing
         samples.append(PaceSample(t: now.timeIntervalSince1970, b: b))
         let cutoff = now.timeIntervalSince1970 - historyMaxAge
-        samples = samples.filter { $0.t >= cutoff }
-        CockpitPaths.ensure()
-        if let data = try? JSONEncoder().encode(samples) { try? data.write(to: CockpitPaths.history) }
-        return samples
+        return samples.filter { $0.t >= cutoff }
+    }
+
+    private static let ioQueue = DispatchQueue(label: "com.growthforging.cockpit.pace-io", qos: .utility)
+
+    static func persist(_ samples: [PaceSample]) {
+        ioQueue.async {
+            if let data = try? JSONEncoder().encode(samples) {
+                CockpitPaths.writePrivate(data, to: CockpitPaths.history)
+            }
+        }
     }
 
     // Only samples from the *current* window count — a reset restarts the series.

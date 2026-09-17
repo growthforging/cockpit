@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # The same script a contributor runs. It compiles, assembles the bundle,
+      # and signs ad-hoc here because CI has no Apple Development identity.
+      - name: Build
+        run: ./build.sh
+
+      - name: Check the bundle
+        run: |
+          test -x Cockpit.app/Contents/MacOS/Cockpit
+          test -f Cockpit.app/Contents/Info.plist
+          codesign --verify --strict Cockpit.app
+          echo "bundle ok"

@@ -19,12 +19,12 @@
     <key>CFBundleIconFile</key>
     <string>Cockpit</string>
     <key>LSMinimumSystemVersion</key>
-    <string>26.0</string>
+    <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026 growthforging</string>
+    <string>© 2026 Ivan Bolshakov. MIT licensed.</string>
 </dict>
 </plist>

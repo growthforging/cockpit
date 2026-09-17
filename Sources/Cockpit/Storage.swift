@@ -1,6 +1,8 @@
 import Foundation
 
-// Everything Cockpit persists lives in ~/.cockpit (0700).
+// Everything Cockpit keeps lives in ~/.cockpit, and all of it is owner-only. The
+// clipboard history is a plaintext record of everything you have copied, which makes
+// it about as sensitive as anything on the machine.
 enum CockpitPaths {
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cockpit")
     static var token: URL { dir.appendingPathComponent("token") }
@@ -8,35 +10,48 @@ enum CockpitPaths {
     static var clips: URL { dir.appendingPathComponent("clips.json") }
     static var clipImages: URL { dir.appendingPathComponent("clips") }
     static var state: URL { dir.appendingPathComponent("state.json") }
+    static var usageState: URL { dir.appendingPathComponent("usage-state.json") }
+    static var paceState: URL { dir.appendingPathComponent("pace-state.json") }
     static var loginCache: URL { dir.appendingPathComponent("claude-code-login.json") }
 
+    // createDirectory ignores `attributes:` when the path already exists, so the mode is
+    // set again every time. A directory that arrived from a backup, a Migration Assistant
+    // transfer, or a bare mkdir before first launch gets repaired instead of staying open.
     static func ensure() {
         let fm = FileManager.default
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try? fm.createDirectory(at: clipImages, withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        try? fm.createDirectory(at: clipImages, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clipImages.path)
     }
 
-    // First launch inherits MaxBar's token and pace history, so nothing needs pasting again.
-    static func migrateFromMaxBar() {
+    // The only way anything here should reach disk. An atomic write lands as a fresh
+    // file whose mode comes from the umask, so 0600 is applied afterwards rather than
+    // assumed.
+    @discardableResult
+    static func writePrivate(_ data: Data, to url: URL) -> Bool {
+        ensure()
+        do {
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // Tightens whatever an older build left world-readable, once per launch.
+    static func repairPermissions() {
         ensure()
         let fm = FileManager.default
-        let old = fm.homeDirectoryForCurrentUser.appendingPathComponent(".maxbar")
-        let oldToken = old.appendingPathComponent("token")
-        if !fm.fileExists(atPath: token.path), fm.fileExists(atPath: oldToken.path) {
-            try? fm.copyItem(at: oldToken, to: token)
-            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: token.path)
+        var files = [token, history, clips, state, usageState, paceState, loginCache]
+        if let images = try? fm.contentsOfDirectory(at: clipImages, includingPropertiesForKeys: nil) {
+            files += images
         }
-        let oldHistory = old.appendingPathComponent("history.json")
-        if !fm.fileExists(atPath: history.path), fm.fileExists(atPath: oldHistory.path) {
-            try? fm.copyItem(at: oldHistory, to: history)
+        for file in files where fm.fileExists(atPath: file.path) {
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         }
     }
-}
-
-// MaxBar's preferences, read once so Cockpit starts with the same tuning.
-enum LegacyPrefs {
-    private static let suite = UserDefaults(suiteName: "com.planmaxxing.maxbar")
-    static func object(_ key: String) -> Any? { suite?.object(forKey: key) }
 }
 
 // The OAuth token for the exact-usage ping. Sourced in priority order:
@@ -64,13 +79,7 @@ enum TokenStore {
     static func save(_ token: String) {
         let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { clear(); return }
-        CockpitPaths.ensure()
-        do {
-            try t.write(to: CockpitPaths.token, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: CockpitPaths.token.path)
-        } catch {
-            NSLog("Cockpit token save error: \(error.localizedDescription)")
-        }
+        CockpitPaths.writePrivate(Data(t.utf8), to: CockpitPaths.token)
     }
 
     static func clear() { try? FileManager.default.removeItem(at: CockpitPaths.token) }

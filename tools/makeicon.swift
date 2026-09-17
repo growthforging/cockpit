@@ -48,5 +48,10 @@ NSColor.white.withAlphaComponent(0.92).setFill(); bar.fill()
 img.unlockFocus()
 let rep = NSBitmapImageRep(data: img.tiffRepresentation!)!
 let png = rep.representation(using: .png, properties: [:])!
-try! png.write(to: URL(fileURLWithPath: CommandLine.arguments[1]))
-print("wrote", CommandLine.arguments[1])
+guard CommandLine.arguments.count > 1 else {
+    FileHandle.standardError.write(Data("usage: makeicon <output.png>\n".utf8))
+    exit(2)
+}
+let out = CommandLine.arguments[1]
+try! png.write(to: URL(fileURLWithPath: out))
+print("wrote", out)

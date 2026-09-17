@@ -7,6 +7,18 @@ struct SettingsView: View {
     @State private var tokenInput = ""
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
+    // "A file exists" is not the same as "the token works"; a mistyped or expired one
+    // used to sit there in green indefinitely.
+    private var tokenStatus: (String, Color) {
+        guard usage.hasToken else { return ("none", .secondary) }
+        let source = TokenStore.sourceDescription
+        switch usage.snapshot.source {
+        case .ping: return ("working (\(source))", .green)
+        case .login: return ("saved (\(source)), unused while the login answers", .secondary)
+        case .local, .unavailable: return ("saved (\(source)), but Anthropic did not accept it", .orange)
+        }
+    }
+
     var body: some View {
         Form {
             Section("Usage") {
@@ -19,13 +31,12 @@ struct SettingsView: View {
                     Button("Ask for Keychain access again") { usage.retryLogin() }
                 }
                 Toggle("Show unlabeled windows the usage API returns", isOn: $usage.showUnlabeledBuckets)
-                Text("Fable, Opus and the other per-model windows only come from Anthropic's usage endpoint, which needs the login Claude Code keeps in your Keychain. macOS asks before Cockpit can read it; the token is cached locally and never refreshed by Cockpit.")
+                Text("Fable, Opus and the other per-model windows only come from Anthropic's usage endpoint, which needs the login Claude Code keeps in your Keychain. macOS asks before Cockpit reads it. Access tokens last hours, so Cockpit renews the login the same way the CLI does, using the same endpoint, client id and scopes, then writes the renewed pair back into that same Keychain item so `claude` stays signed in. The current access token is cached at ~/.cockpit/claude-code-login.json, mode 0600, and a renewed refresh token lands there too on the rare occasion the Keychain write-back fails.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 LabeledContent("Fallback token") {
-                    Text(usage.hasToken ? "found (\(TokenStore.sourceDescription))" : "none")
-                        .foregroundStyle(usage.hasToken ? .green : .secondary)
+                    Text(tokenStatus.0).foregroundStyle(tokenStatus.1)
                 }
                 SecureField("Paste a `claude setup-token` token", text: $tokenInput)
                 HStack {
@@ -83,10 +94,15 @@ struct SettingsView: View {
                 Toggle("Record what I copy", isOn: $clips.enabled)
                 Toggle("Add new screenshots to the history", isOn: $clips.screenshotsEnabled)
                 Toggle("⇧⌘V opens the history", isOn: $clips.hotkeyEnabled)
+                if clips.hotkeyUnavailable {
+                    Text("macOS refused that shortcut. Another app, often a launcher like Raycast or Alfred, already owns ⇧⌘V. Free it there, or open the history from the island.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Stepper("Keep \(clips.maxItems) clips", value: $clips.maxItems, in: 20...500, step: 10)
                 Button("Clear history", role: .destructive) { clips.clear() }
                     .disabled(clips.items.isEmpty)
-                Text("Text, files and images. Copies from password managers are marked concealed and never recorded. Everything stays in ~/.cockpit.")
+                Text("Text, files and images, kept in ~/.cockpit at mode 0600. Apps that mark a copy concealed, among them 1Password and KeePassXC, are skipped, but that marking is a voluntary convention: Apple's Passwords app and anything copied through a browser extension are recorded like ordinary text. Switch recording off before copying a secret.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

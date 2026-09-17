@@ -16,10 +16,31 @@ struct UsageTab: View {
                     .frame(height: IslandMetrics.modelRowHeight)
             }
 
+            if let note = usage.snapshot.note, !note.isEmpty {
+                noteRow(note).frame(height: IslandMetrics.noteHeight)
+            }
             sourceRow.frame(height: 22)
             notchRow.frame(height: 22)
         }
         .padding(IslandMetrics.pad)
+    }
+
+    // Shown whenever the numbers are an estimate rather than a reading.
+    private func noteRow(_ note: String) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Level.caution.color.opacity(0.9))
+            Text(note)
+                .font(.system(size: 10.5))
+                .foregroundStyle(Ink.dim)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Level.caution.color.opacity(0.10)))
     }
 
     private var sourceRow: some View {
@@ -41,7 +62,7 @@ struct UsageTab: View {
                         .underline(true, color: Ink.faint)
                 }
                 .buttonStyle(.plain)
-                .help("Per-model usage (Fable, Opus…) comes from your Claude Code login. Click to connect.")
+                .help("Per-model windows come from the login Claude Code keeps in your Keychain. Run `claude` in a terminal and sign in, then click here to look again.")
             }
         }
     }
@@ -64,9 +85,9 @@ struct UsageTab: View {
         switch usage.loginState {
         case .connected: return nil
         case .off: return "Connect Claude Code login"
-        case .denied: return "Allow Keychain for Fable %"
-        case .notFound: return "No Claude Code login found"
-        case .noScope: return "Login lacks usage scope"
+        case .denied: return "Keychain declined · ask again"
+        case .notFound: return "No Claude Code login · re-check"
+        case .noScope: return "Login lacks the usage scope"
         case .failed(let why): return why
         }
     }
@@ -133,17 +154,23 @@ struct BucketCard: View {
                             .foregroundStyle(Ink.faint)
                     }
                     Spacer()
-                    Text(fmtPct(bucket.pct, precise: precise))
+                    Text(bucket.synthesized ? "—" : fmtPct(bucket.pct, precise: precise))
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(pace.risk.color)
+                        .foregroundStyle(bucket.synthesized ? Ink.faint : pace.risk.color)
                         .contentTransition(.numericText(value: bucket.pct))
                         .animation(.spring(response: 0.5, dampingFraction: 0.9), value: bucket.pct)
                 }
                 Spacer(minLength: 4)
-                PaceBar(pct: bucket.pct, pace: pace, height: 8)
+                PaceBar(pct: bucket.synthesized ? 0 : bucket.pct, pace: pace, height: 8)
                 Spacer(minLength: 4)
-                VerdictLine(pace: pace)
+                if bucket.synthesized {
+                    Text("no usage data yet")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Ink.faint)
+                } else {
+                    VerdictLine(pace: pace)
+                }
                 Text(fmtReset(bucket.resetAt)?.replacingOccurrences(of: "resets ", with: "↻ ") ?? "")
                     .font(.system(size: 10.5))
                     .foregroundStyle(Ink.faint)

@@ -28,6 +28,8 @@ struct UsageBucket: Identifiable, Equatable {
     var detail: String? = nil
     var severity: String? = nil   // Anthropic's own read: normal / warning / critical
     var binding = false           // the window currently constraining you
+    var synthesized = false       // no data for this window; do not draw it as 0%
+    var isModelLimit = false      // the API scoped this window to a named model
 
     var id: String { key }
     var title: String { label ?? BucketInfo.title(for: key) }
@@ -87,9 +89,12 @@ struct UsageSnapshot {
     var breakdown: [BreakdownRow] = []
 
     func bucket(_ key: String) -> UsageBucket? { buckets.first { $0.key == key } }
-    var fiveHour: UsageBucket { bucket("five_hour") ?? UsageBucket(key: "five_hour", pct: 0, resetAt: nil) }
-    var weekly: UsageBucket { bucket("seven_day") ?? UsageBucket(key: "seven_day", pct: 0, resetAt: nil) }
-    var fable: UsageBucket? { buckets.first { $0.key.contains("fable") || $0.key.contains("mythos") } }
+    var fiveHour: UsageBucket { bucket("five_hour") ?? UsageBucket(key: "five_hour", pct: 0, resetAt: nil, synthesized: true) }
+    var weekly: UsageBucket { bucket("seven_day") ?? UsageBucket(key: "seven_day", pct: 0, resetAt: nil, synthesized: true) }
+    // The per-model window worth featuring, whatever this month's model is called.
+    var featuredModel: UsageBucket? {
+        buckets.first { $0.isModelLimit } ?? buckets.first { $0.isModelSpecific && BucketInfo.isKnown($0.key) }
+    }
 
     static let placeholder = UsageSnapshot(buckets: [], source: .unavailable, asOf: .distantPast, note: "Loading…", precise: false)
 }

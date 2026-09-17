@@ -80,7 +80,8 @@ final class NotchHUD {
     private var pollTimer: Timer?
     private var outsideSince: Date?
     private var insideSince: Date?
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var lastMouse = NSPoint(x: -1, y: -1)
     private var clickMonitors: [Any] = []
     private var previousApp: NSRunningApplication?
     private var keyboardMode = false        // opened by the hotkey: key window, closes on outside click
@@ -137,12 +138,15 @@ final class NotchHUD {
             p.orderFrontRegardless()
 
             let center = NotificationCenter.default
-            observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            observers.append((center, center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.reposition() }
-            })
-            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            }))
+            // A workspace token cannot be unregistered through the default centre, so each
+            // observer is stored beside the centre that owns it.
+            let workspace = NSWorkspace.shared.notificationCenter
+            observers.append((workspace, workspace.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.panel?.orderFrontRegardless() }
-            })
+            }))
             startTracking()
         }
         position()
@@ -155,7 +159,7 @@ final class NotchHUD {
         panel?.orderOut(nil)
         panel = nil
         hosting = nil
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.forEach { $0.0.removeObserver($0.1) }
         observers.removeAll()
         island.expanded = false
         island.pinned = false
@@ -191,7 +195,7 @@ final class NotchHUD {
 
     private func currentSize() -> CGSize {
         if island.expanded {
-            return CGSize(width: IslandMetrics.expandedWidth, height: island.expandedHeight(modelBuckets: usage.modelBuckets.count))
+            return CGSize(width: IslandMetrics.expandedWidth, height: island.expandedHeight(modelBuckets: usage.modelBuckets.count, hasNote: usage.showsNote))
         }
         return CGSize(width: island.idleWidth, height: island.notchHeight)
     }
@@ -228,6 +232,10 @@ final class NotchHUD {
     private func tick() {
         guard !island.pinned, let geo else { return }
         let mouse = NSEvent.mouseLocation
+        // With the cursor parked away from the notch, which is nearly always, there is
+        // nothing to recompute.
+        if !island.expanded, insideSince == nil, mouse == lastMouse { return }
+        lastMouse = mouse
         let f = geo.screen.frame
         let idleWidth = island.idleWidth
         let trigger = NSRect(x: f.midX - idleWidth / 2, y: f.maxY - geo.notchHeight - 2, width: idleWidth, height: geo.notchHeight + 2)

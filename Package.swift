@@ -1,14 +1,13 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "Cockpit",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
             name: "Cockpit",
-            path: "Sources/Cockpit",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            path: "Sources/Cockpit"
         )
     ]
 )

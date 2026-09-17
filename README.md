@@ -1,57 +1,144 @@
 # Cockpit
 
-One app in the notch. Claude usage with pace predictions, clipboard history, and
-the mouse-wheel fix, in a single black island that springs out of the notch.
+A macOS menu-bar app that puts three things in the notch of your MacBook: how much Claude usage you have left, everything you copied recently, and a switch that reverses your mouse wheel while the trackpad keeps scrolling normally.
 
-- **Usage** — the 5-hour session, the weekly window and every per-model limit
-  Anthropic exposes (Fable today). Each bar shows where you are, where the
-  current pace lands you by the reset, and a tick for an even pace. Colour is
-  risk: green while the pace fits the window, amber when you'd run dry a little
-  early, red when you'd lose real time or hit the limit.
-- **Clips** — everything you copy, plus every screenshot macOS saves. Click to
-  copy it back, ↩ to paste it into the front app. ⇧⌘V opens it from anywhere.
-- **Scroll** — reverse the mouse wheel while the trackpad stays natural
-  (the ScrollFlip trick), switchable from the island.
+Hover the notch and it springs open. Click it and it stays open.
 
-The idle bar shows a readout either side of the notch; each side is switchable
-(Session, Week, Fable, or nothing). Hover to open, click anywhere on the island
-to pin it open, click again to release.
+![The Cockpit island open below the notch with the usage panel visible](docs/cockpit.png)
 
-## Build
+Runs on macOS 14 Sonoma and later. The island needs a Mac with a notch, which means any MacBook Pro or Air from 2021 onward. On every other Mac, and whenever a second display is attached, the same panel opens from a menu-bar icon carrying the same readouts.
 
-Requires macOS 26 and Xcode 26.
+## Usage
+
+Anthropic publishes three kinds of limit: a 5-hour session window, a weekly window across all models, and weekly windows for individual models. Cockpit reads whichever ones your account has and draws each as a bar with three marks.
+
+Solid fill shows where you are right now. Behind it, a faint band reaches as far as your current burn rate would carry you by the time the window resets. The white tick sits at even pace.
+
+Colour comes from that projection. A bar at 98% two minutes before its reset stays green, since the window refills before the number can hurt you. Leave four hours on the clock at that same 98% and it goes red, with a line underneath telling you how early you run out.
+
+Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Either side can show any window you like, or nothing.
+
+### Where the numbers come from
+
+Cockpit tries three sources in order, and the panel always says which one answered.
+
+1. The login that the Claude Code command line keeps in your Keychain. This is the only source that carries per-model windows.
+2. A token from `claude setup-token`, pasted into Settings. One 1-token ping, and the session and weekly percentages come back in the response headers.
+3. Neither of those, in which case Cockpit adds up the cache tokens in your local `~/.claude` transcripts and divides by a fixed budget.
+
+That third one is a guess, and the panel labels it as such. The budget was measured against one particular subscription, so on a different plan the number will be wrong in a direction nobody can predict. Treat it as a rough shape, and connect one of the first two sources for real figures.
+
+## Clipboard
+
+Everything you copy lands in a searchable list. Text and files and images all count, as do screenshots, which Cockpit picks up from wherever macOS saves them. Press Shift-Command-V anywhere to open the list, type to filter, use the arrow keys to move, then press Return to paste into whatever app you came from. Clicking a row copies it and leaves the list open.
+
+Some launchers claim Shift-Command-V first. If yours does, Settings says so and the list still opens from the island.
+
+Apps that mark a copy as concealed are skipped. That marking is voluntary. 1Password and KeePassXC set it, Apple's Passwords app does not, and anything copied through a browser extension arrives as ordinary text and is recorded. Switch recording off before copying a secret.
+
+## Mouse wheel
+
+macOS has one natural-scrolling switch shared by the trackpad and the mouse, which is why plugging in a wheel mouse makes scrolling feel backwards. Cockpit reverses wheel events on their own, and trackpad gestures stay untouched. It ships switched off. Turn it on from the third tab.
+
+## Install
 
 ```sh
-./build.sh                                 # compiles, assembles and signs Cockpit.app
-cp -R Cockpit.app /Applications/
-open /Applications/Cockpit.app
+git clone https://github.com/growthforging/cockpit.git
+cd cockpit
+./build.sh
+cp -R Cockpit.app /Applications/ && open /Applications/Cockpit.app
 ```
 
-`build.sh` builds with Xcode's toolchain, or with the Command Line Tools when
-Xcode is waiting for its license to be accepted (`sudo xcodebuild -license accept`).
-It signs with an Apple Development identity when one is in the Keychain.
-That matters: macOS ties the Accessibility and Keychain grants to the signing
-identity, and an ad-hoc signature changes on every rebuild, silently voiding them.
+You need Xcode 15 or later, or the Command Line Tools. `build.sh` compiles, assembles the app bundle, and signs it.
+
+One detail is worth knowing before you grant any permissions. macOS ties Accessibility and Keychain grants to an app's code signature.
+
+If your Keychain holds an Apple Development identity, `build.sh` finds it and uses it, so your grants survive every rebuild. Without one it falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
+
+There is no prebuilt download, on purpose. A binary signed this way arrives quarantined and asks you to defeat Gatekeeper by hand, which is worse than the four commands above.
 
 ## Permissions
 
-- **Accessibility** — the scroll flip and ↩-to-paste need it. Asked once, then
-  the Scroll tab shows the state.
-- **Keychain** — per-model usage comes from Anthropic's usage endpoint, which
-  needs the login Claude Code keeps in the Keychain (`claude` → `/login`).
-  macOS asks before Cockpit reads it. Access tokens last hours, so Cockpit
-  renews the login the same way the CLI does (same endpoint, client id and
-  scopes) and writes the new pair back into the Keychain item, keeping the
-  CLI logged in. Without a login, a `claude setup-token` token pasted in
-  Settings gives the session and weekly numbers from the rate-limit headers.
+Cockpit works in some useful form whatever you refuse.
 
-Everything Cockpit stores lives in `~/.cockpit`. Anthropic reports whole
-percents, so a decimal only appears if the API ever sends one.
+### Accessibility
 
-## Debug
+Reversing wheel events requires it, and so does sending Command-V when you paste from the clipboard list. macOS shows its dialog once, on the launch where a wheel flip is first attempted, and never opens it again on its own. Refuse it and the clipboard list still copies on click, while the usage panel carries on regardless.
+
+### Keychain
+
+Per-model numbers come from an Anthropic endpoint that needs the login the Claude Code command line stores in your Keychain. macOS asks before Cockpit reads it, and choosing Always Allow means it never asks again.
+
+Access tokens expire after a few hours, and the command line only renews them while it runs. Cockpit therefore renews the login itself through the same endpoint, client id, and scopes, then writes the new pair back so `claude` stays signed in too.
+
+### Notifications
+
+Asked the first time a pace alert would actually fire, which keeps launch quiet. Alerts warn you when your burn rate points at running out before a window resets. Turn them off in Settings and the request never happens.
+
+### Your screenshot folder
+
+Screenshots normally land on the Desktop, and macOS asks before any app may read that folder. Refuse it, or switch screenshot capture off in Settings, and the rest of the clipboard history is unaffected.
+
+## Privacy
+
+Everything the app sends goes to Anthropic, over three endpoints and nowhere else.
+
+| What it is for | Endpoint |
+| --- | --- |
+| per-model usage numbers | `api.anthropic.com/api/oauth/usage` |
+| one 1-token ping whose response headers carry session and weekly percentages | `api.anthropic.com/v1/messages` |
+| renewal of the login, the same call the command line makes | `platform.claude.com/v1/oauth/token` |
+
+Nothing else leaves your Mac. There is no analytics SDK in the binary, and no server of mine for it to talk to. Your clipboard stays local.
+
+State lives in `~/.cockpit`, a directory kept at mode 0700, with every file inside it written 0600 and repaired on launch if something loosened them. Clipboard history sits there as plain JSON beside plain image files, so anything already running as you can read it. Recording has an off switch in Settings, and the history has a Clear button.
+
+Two things are worth naming plainly. Cockpit writes a live access token to `~/.cockpit/claude-code-login.json`, outside the Keychain, because it has to survive a relaunch. It also rewrites the Claude Code Keychain item whenever it renews the login, which is what keeps `claude` signed in.
+
+## Settings
+
+Open Settings from the gear in the island.
+
+Either side of the notch can be pinned to a specific window, so you can watch one model and ignore everything else. The clipboard has a size cap and a switch for screenshot capture. Refreshes happen every 60 seconds by default. Launch at login installs a small LaunchAgent, which Cockpit re-points if you move the app, and switching it off deletes that file.
+
+## When something looks wrong
+
+Cockpit writes down what it did. These three files in `~/.cockpit` hold the answer when the display looks wrong.
+
+| File | What it holds |
+| --- | --- |
+| `usage-state.json` | which source answered, and what it returned |
+| `pace-state.json` | the projection behind each bar |
+| `state.json` | what Cockpit believes it drew, and on which screens |
+
+Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made.
+
+A bar showing a dash has no data for that window yet. One stuck on "measuring pace" has too little history to project from; projection starts once roughly 15% of a window has elapsed.
+
+When the usage panel reports an expired login, run `claude` once and sign in. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back.
+
+## Uninstall
+
+Quit the app, delete it with its folder and login item, then drop its preferences.
 
 ```sh
-/Applications/Cockpit.app/Contents/MacOS/Cockpit --notchinfo   # screen + notch geometry
-cat ~/.cockpit/usage-state.json                                 # last refresh: source, login state, buckets
-cat ~/.cockpit/state.json                                       # what's on screen
+osascript -e 'quit app "Cockpit"'
+rm -rf /Applications/Cockpit.app ~/.cockpit ~/Library/LaunchAgents/com.growthforging.cockpit.plist
+defaults delete com.growthforging.cockpit
 ```
+
+Then remove Cockpit from the Accessibility list in System Settings, under Privacy and Security.
+
+## Contributing
+
+Issues and pull requests are welcome. The code is about 4,000 lines of Swift with no dependencies, one concern per file. `UsageService` and `Pace` produce the numbers, `Clipboard` keeps the history, the event tap lives in `ScrollFlip`, and the window itself is `NotchHUD` plus `IslandView`.
+
+Build with `./build.sh`. It fails loudly when the toolchain is unhappy, so a stale bundle never reaches `/Applications`.
+
+## Credit
+
+The scroll-reversal event tap comes from ScrollFlip, and the usage projection from MaxBar, two earlier apps of mine that Cockpit replaces.
+
+## License
+
+Released under the MIT License. See [LICENSE](LICENSE) for the text.

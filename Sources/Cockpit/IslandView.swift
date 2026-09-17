@@ -19,10 +19,11 @@ enum IslandMetrics {
     static let clipsListHeight: CGFloat = 6 * 38 + 10
     static let cardHeight: CGFloat = 112
     static let modelRowHeight: CGFloat = 84
+    static let noteHeight: CGFloat = 30
 
-    static func contentHeight(tab: IslandTab, modelBuckets: Int) -> CGFloat {
+    static func contentHeight(tab: IslandTab, modelBuckets: Int, hasNote: Bool) -> CGFloat {
         switch tab {
-        case .usage: return pad + cardHeight + CGFloat(modelBuckets) * (modelRowHeight + 10) + 10 + 22 + 8 + 22 + pad
+        case .usage: return pad + cardHeight + CGFloat(modelBuckets) * (modelRowHeight + 10) + (hasNote ? noteHeight + 10 : 0) + 10 + 22 + 8 + 22 + pad
         case .clips: return pad + 30 + 8 + clipsListHeight + 8 + 20 + pad
         case .scroll: return pad + 92 + 10 + 62 + pad
         }
@@ -41,8 +42,8 @@ final class IslandState: ObservableObject {
     @Published var searchFocusRequest = 0
 
     var idleWidth: CGFloat { notchWidth + 2 * IslandMetrics.flankWidth }
-    func expandedHeight(modelBuckets: Int) -> CGFloat {
-        notchHeight + IslandMetrics.contentHeight(tab: tab, modelBuckets: modelBuckets)
+    func expandedHeight(modelBuckets: Int, hasNote: Bool) -> CGFloat {
+        notchHeight + IslandMetrics.contentHeight(tab: tab, modelBuckets: modelBuckets, hasNote: hasNote)
     }
 }
 
@@ -67,7 +68,7 @@ struct IslandView: View {
     var body: some View {
         let expanded = island.expanded
         let width = expanded ? IslandMetrics.expandedWidth : island.idleWidth
-        let height = expanded ? island.expandedHeight(modelBuckets: usage.modelBuckets.count) : island.notchHeight
+        let height = expanded ? island.expandedHeight(modelBuckets: usage.modelBuckets.count, hasNote: usage.showsNote) : island.notchHeight
         let radius = expanded ? IslandMetrics.expandedRadius : island.cornerRadius
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 0, bottomLeadingRadius: radius,
@@ -98,6 +99,7 @@ struct IslandView: View {
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: expanded)
         .animation(.spring(response: 0.36, dampingFraction: 0.86), value: island.tab)
         .animation(.spring(response: 0.36, dampingFraction: 0.86), value: usage.modelBuckets.count)
+        .animation(.spring(response: 0.36, dampingFraction: 0.86), value: usage.showsNote)
         .preferredColorScheme(.dark)
     }
 
@@ -181,16 +183,18 @@ struct FlankReadout: View {
 
     var body: some View {
         VStack(spacing: 2.5) {
-            Text(fmtPct(bucket.pct, precise: precise))
+            Text(bucket.synthesized ? "—" : fmtPct(bucket.pct, precise: precise))
                 .font(.system(size: 10.5, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(pace.risk.color)
+                .foregroundStyle(bucket.synthesized ? Ink.faint : pace.risk.color)
                 .contentTransition(.numericText(value: bucket.pct))
                 .animation(.spring(response: 0.5, dampingFraction: 0.9), value: bucket.pct)
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.22)).frame(width: barWidth, height: barHeight)
-                Capsule().fill(pace.risk.color).frame(width: max(2, barWidth * CGFloat(min(100, bucket.pct)) / 100), height: barHeight)
-                if pace.expectedPct > 3, pace.expectedPct < 97 {
+                if !bucket.synthesized {
+                    Capsule().fill(pace.risk.color).frame(width: max(2, barWidth * CGFloat(min(100, bucket.pct)) / 100), height: barHeight)
+                }
+                if !bucket.synthesized, pace.expectedPct > 3, pace.expectedPct < 97 {
                     Rectangle().fill(Color.white.opacity(0.9)).frame(width: 1, height: barHeight + 2)
                         .offset(x: barWidth * CGFloat(pace.expectedPct) / 100 - 0.5)
                 }
@@ -198,6 +202,6 @@ struct FlankReadout: View {
             .frame(width: barWidth, height: barHeight + 2)
         }
         .fixedSize()
-        .help("\(bucket.title) · \(bucket.subtitle) · \(pace.verdict.compact)")
+        .help(bucket.synthesized ? "\(bucket.title) · no usage data yet" : "\(bucket.title) · \(bucket.subtitle) · \(pace.verdict.compact)")
     }
 }

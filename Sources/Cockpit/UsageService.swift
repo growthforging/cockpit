@@ -46,8 +46,9 @@ actor UsageService {
                 do {
                     return FetchResult(snapshot: try await fetchUsageEndpoint(token: t.accessToken), loginState: .connected)
                 } catch UsageError.unauthorized {
-                    // The token died early: renew it and go again.
-                    ClaudeCodeLogin.clearCache()
+                    // The token died early: renew it and go again. Only the access token is
+                    // dropped, because the cache may hold the only live refresh token.
+                    ClaudeCodeLogin.invalidateAccessToken()
                     if allowKeychain, case .success(let fresh) = await ClaudeCodeLogin.fromKeychain(forceRefresh: true),
                        let snap = try? await fetchUsageEndpoint(token: fresh.accessToken) {
                         return FetchResult(snapshot: snap, loginState: .connected)
@@ -81,8 +82,8 @@ actor UsageService {
 
         if let local = LocalUsage.read() {
             let note = token == nil
-                ? "Estimated from local logs · add a token in Settings for exact %"
-                : "Estimated from local logs · exact ping unavailable"
+                ? "Rough estimate from your ~/.claude logs, measured against a fixed budget that may not match your plan. Connect the Claude Code login for real numbers."
+                : "Rough estimate from your ~/.claude logs: the token ping did not answer."
             return FetchResult(
                 snapshot: UsageSnapshot(buckets: local, source: .local, asOf: Date(), note: note, precise: false),
                 loginState: loginState
@@ -113,7 +114,7 @@ actor UsageService {
         guard let http = response as? HTTPURLResponse else { throw UsageError.badResponse }
         if http.statusCode != 200 {
             let snippet = (String(data: data.prefix(200), encoding: .utf8) ?? "").replacingOccurrences(of: "\n", with: " ")
-            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint HTTP \(http.statusCode): \(snippet)"
+            ClaudeCodeLogin.note(" · usage endpoint HTTP \(http.statusCode): \(snippet)")
         }
         switch http.statusCode {
         case 200: break
@@ -122,7 +123,7 @@ actor UsageService {
         default: throw UsageError.http(http.statusCode)
         }
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint body was not a JSON object"
+            ClaudeCodeLogin.note(" · usage endpoint body was not a JSON object")
             throw UsageError.badResponse
         }
 
@@ -151,6 +152,7 @@ actor UsageService {
                     let prefix = kind.hasPrefix("weekly") ? "seven_day_" : "five_hour_"
                     bucket = UsageBucket(key: prefix + Self.slug(name), pct: clamp(p), resetAt: reset)
                     bucket.label = name
+                    bucket.isModelLimit = (model != nil)
                     bucket.detail = (kind.hasPrefix("weekly") ? "weekly" : "5-hour") + (model != nil ? " · model limit" : surface != nil ? " · surface limit" : "")
                 }
                 bucket.severity = severity
@@ -174,7 +176,7 @@ actor UsageService {
             buckets.append(UsageBucket(key: key, pct: clamp(u), resetAt: reset))
         }
         guard !buckets.isEmpty else {
-            ClaudeCodeLogin.lastDiagnostic += " · usage endpoint keys: \(obj.keys.sorted().joined(separator: ","))"
+            ClaudeCodeLogin.note(" · usage endpoint keys: \(obj.keys.sorted().joined(separator: ","))")
             throw UsageError.empty
         }
         buckets.sort { (BucketInfo.rank($0.key), $0.key) < (BucketInfo.rank($1.key), $1.key) }

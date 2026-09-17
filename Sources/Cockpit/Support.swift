@@ -2,27 +2,40 @@ import AppKit
 import SwiftUI
 import UserNotifications
 
-// Local notifications for pace alerts.
+// Local notifications for pace alerts. Authorization is asked for the first time an
+// alert would actually fire, rather than at launch alongside two other prompts, and the
+// alert that triggered the request still goes out once permission is granted.
 final class Notifier {
-    func requestAuthorization() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    }
-
     func fire(title: String, body: String) {
         guard Bundle.main.bundleIdentifier != nil else { return }
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    if granted { Notifier.post(center, title: title, body: body) }
+                }
+            case .denied:
+                return
+            default:
+                Notifier.post(center, title: title, body: body)
+            }
+        }
+    }
+
+    private static func post(_ center: UNUserNotificationCenter, title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 }
 
 // Starts the app at login via a per-user LaunchAgent. A plain plist (rather than
 // SMAppService) stays reliable for an ad-hoc-signed app.
 enum LaunchAtLogin {
-    static let label = "com.growthforging.cockpit"
+    static var label: String { Bundle.main.bundleIdentifier ?? "com.growthforging.cockpit" }
 
     private static var plistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist")
@@ -31,6 +44,18 @@ enum LaunchAtLogin {
     static var isEnabled: Bool { FileManager.default.fileExists(atPath: plistURL.path) }
 
     static func set(_ enabled: Bool) { enabled ? enable() : disable() }
+
+    // The plist stores an absolute path. Re-point it whenever the app has moved since the
+    // toggle was flipped, which is exactly what the documented build-then-copy flow does.
+    static func repairIfMoved() {
+        guard isEnabled else { return }
+        guard let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String],
+              let stored = args.last
+        else { return }
+        if stored != Bundle.main.bundlePath { enable() }
+    }
 
     private static func enable() {
         let plist: [String: Any] = [
@@ -94,6 +119,8 @@ enum SettingsOpener {
 
 // What the app actually put on screen, for when a readout seems to be missing.
 enum Diagnostics {
+    private static let ioQueue = DispatchQueue(label: "com.growthforging.cockpit.diagnostics", qos: .utility)
+
     // Which source fed the last refresh and how the Claude Code login went: ~/.cockpit/usage-state.json
     static func writeUsage(_ r: FetchResult, loginDeclined: Bool) {
         CockpitPaths.ensure()
@@ -113,8 +140,10 @@ enum Diagnostics {
             "note": r.snapshot.note ?? "",
             "asOf": iso.string(from: r.snapshot.asOf),
         ]
-        if let data = try? JSONSerialization.data(withJSONObject: s, options: .prettyPrinted) {
-            try? data.write(to: CockpitPaths.dir.appendingPathComponent("usage-state.json"))
+        ioQueue.async {
+            if let data = try? JSONSerialization.data(withJSONObject: s, options: .prettyPrinted) {
+                CockpitPaths.writePrivate(data, to: CockpitPaths.usageState)
+            }
         }
     }
 
@@ -126,8 +155,10 @@ enum Diagnostics {
             s[key] = ["verdict": p.verdict.compact, "risk": "\(p.risk)", "expectedPct": (p.expectedPct * 10).rounded() / 10]
         }
         s["updatedAt"] = ISO8601DateFormatter().string(from: Date())
-        if let data = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: CockpitPaths.dir.appendingPathComponent("pace-state.json"))
+        ioQueue.async {
+            if let data = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted, .sortedKeys]) {
+                CockpitPaths.writePrivate(data, to: CockpitPaths.paceState)
+            }
         }
     }
 
@@ -135,8 +166,10 @@ enum Diagnostics {
         CockpitPaths.ensure()
         var s = state
         s["updatedAt"] = ISO8601DateFormatter().string(from: Date())
-        if let data = try? JSONSerialization.data(withJSONObject: s, options: .prettyPrinted) {
-            try? data.write(to: CockpitPaths.state)
+        ioQueue.async {
+            if let data = try? JSONSerialization.data(withJSONObject: s, options: .prettyPrinted) {
+                CockpitPaths.writePrivate(data, to: CockpitPaths.state)
+            }
         }
     }
 }

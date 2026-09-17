@@ -28,7 +28,27 @@ enum ClaudeCodeLogin {
     enum Failure: Error, Equatable { case notFound, denied, malformed, noScope, expired, refreshFailed(String) }
 
     // What the last Keychain search / refresh saw (never the secret), for usage-state.json.
-    nonisolated(unsafe) static var lastDiagnostic = ""
+    // Written from inside the UsageService actor and from nonisolated statics, read on
+    // the main actor, so it is lock-guarded and capped rather than grown without bound.
+    private nonisolated(unsafe) static var diagnostic = ""
+    private static let diagnosticLock = NSLock()
+    private static let diagnosticLimit = 800
+
+    static var lastDiagnostic: String {
+        get {
+            diagnosticLock.lock(); defer { diagnosticLock.unlock() }
+            return diagnostic
+        }
+        set {
+            diagnosticLock.lock(); defer { diagnosticLock.unlock() }
+            diagnostic = String(newValue.prefix(diagnosticLimit))
+        }
+    }
+
+    static func note(_ text: String) {
+        diagnosticLock.lock(); defer { diagnosticLock.unlock() }
+        diagnostic = String((diagnostic + text).suffix(diagnosticLimit))
+    }
 
     struct Record {
         var service: String
@@ -78,7 +98,7 @@ enum ClaudeCodeLogin {
                 var cached = pair.0
                 if !stored { cached.refreshToken = pair.1 }
                 writeCache(cached)
-                lastDiagnostic += stored ? " · renewed + written back" : " · renewed (kept locally)"
+                note(stored ? " · renewed + written back" : " · renewed (kept locally)")
                 return .success(pair.0)
             case .failure(let f):
                 lastFailure = f
@@ -106,7 +126,7 @@ enum ClaudeCodeLogin {
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             guard http.statusCode == 200, let access = obj?["access_token"] as? String, !access.isEmpty else {
                 let why = (obj?["error_description"] as? String) ?? (obj?["error"] as? String) ?? "HTTP \(http.statusCode)"
-                lastDiagnostic += " · refresh refused: \(why)"
+                note(" · refresh refused: \(why)")
                 return .failure((400...401).contains(http.statusCode) ? .expired : .refreshFailed(why))
             }
             let newRefresh = (obj?["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? refreshToken
@@ -137,7 +157,7 @@ enum ClaudeCodeLogin {
         if !rec.account.isEmpty { query[kSecAttrAccount as String] = rec.account }
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status != errSecSuccess {
-            lastDiagnostic += " · Keychain write-back failed (\(status))"
+            note(" · Keychain write-back failed (\(status))")
             return false
         }
         return true
@@ -172,8 +192,29 @@ enum ClaudeCodeLogin {
 
     private struct Candidate { var service: String; var account: String; var modified: Date }
 
-    // Attributes only: no secret is read and macOS shows no prompt for this.
+    // Attributes only: no secret is read and macOS shows no prompt for this. The exact
+    // service name is asked for first, so the broad scan below only runs for the rare
+    // install whose item carries a suffix.
     private static func findCandidates() -> [Candidate] {
+        var exact: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true,
+        ]
+        exact[kSecReturnData as String] = false
+        var exactResult: CFTypeRef?
+        if SecItemCopyMatching(exact as CFDictionary, &exactResult) == errSecSuccess,
+           let items = exactResult as? [[String: Any]], !items.isEmpty {
+            return items.map { item in
+                Candidate(
+                    service: item[kSecAttrService as String] as? String ?? service,
+                    account: item[kSecAttrAccount as String] as? String ?? "",
+                    modified: item[kSecAttrModificationDate as String] as? Date ?? .distantPast
+                )
+            }
+        }
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecMatchLimit as String: kSecMatchLimitAll,
@@ -232,6 +273,20 @@ enum ClaudeCodeLogin {
 
     static func clearCache() { try? FileManager.default.removeItem(at: CockpitPaths.loginCache) }
 
+    // The server rejected the access token. Dropping the whole cache here would also drop a
+    // refresh token that `writeBack` failed to store, and that copy is the only live one:
+    // the Keychain still holds the predecessor the server invalidated when it rotated.
+    // Losing it signs the user out of Cockpit and of the Claude Code CLI, permanently.
+    static func invalidateAccessToken() {
+        guard var cached = readCache(), let stashed = cached.refreshToken, !stashed.isEmpty else {
+            clearCache()
+            return
+        }
+        cached.accessToken = ""
+        cached.expiresAt = .distantPast
+        writeCache(cached)
+    }
+
     private static func readCache() -> ClaudeCodeToken? {
         guard let data = try? Data(contentsOf: CockpitPaths.loginCache) else { return nil }
         return try? JSONDecoder().decode(ClaudeCodeToken.self, from: data)
@@ -240,7 +295,6 @@ enum ClaudeCodeLogin {
     private static func writeCache(_ t: ClaudeCodeToken) {
         CockpitPaths.ensure()
         guard let data = try? JSONEncoder().encode(t) else { return }
-        try? data.write(to: CockpitPaths.loginCache, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: CockpitPaths.loginCache.path)
+        CockpitPaths.writePrivate(data, to: CockpitPaths.loginCache)
     }
 }

@@ -34,12 +34,13 @@ final class UsageModel: ObservableObject {
     private var timer: Timer?
     private var notified: Set<String> = []
     private var wakeObserver: NSObjectProtocol?
+    private var paceSamples: [PaceSample]?
 
     init() {
         let d = UserDefaults.standard
-        func int(_ key: String, _ fallback: Int) -> Int { (d.object(forKey: key) ?? LegacyPrefs.object(key)) as? Int ?? fallback }
-        func bool(_ key: String, _ fallback: Bool) -> Bool { (d.object(forKey: key) ?? LegacyPrefs.object(key)) as? Bool ?? fallback }
-        func double(_ key: String, _ fallback: Double) -> Double { (d.object(forKey: key) ?? LegacyPrefs.object(key)) as? Double ?? fallback }
+        func int(_ key: String, _ fallback: Int) -> Int { d.object(forKey: key) as? Int ?? fallback }
+        func bool(_ key: String, _ fallback: Bool) -> Bool { d.object(forKey: key) as? Bool ?? fallback }
+        func double(_ key: String, _ fallback: Double) -> Double { d.object(forKey: key) as? Double ?? fallback }
 
         refreshSeconds = max(15, int("refreshSeconds", 60))
         notificationsEnabled = bool("notificationsEnabled", true)
@@ -55,7 +56,6 @@ final class UsageModel: ObservableObject {
     }
 
     func start() {
-        notifier.requestAuthorization()
         scheduleTimer()
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -68,6 +68,7 @@ final class UsageModel: ObservableObject {
     // MARK: - Reading the snapshot
 
     var precise: Bool { snapshot.precise }
+    var showsNote: Bool { (snapshot.note?.isEmpty == false) }
     // Anthropic's endpoint also returns windows under internal codenames (e.g. an
     // unreleased limit). Those stay hidden while they read 0%, unless asked for.
     var modelBuckets: [UsageBucket] {
@@ -85,7 +86,7 @@ final class UsageModel: ObservableObject {
         let pref = side == .left ? leftFlankKey : rightFlankKey
         if pref == "none" { return nil }
         if pref != "auto", let b = snapshot.bucket(pref) { return b }
-        return side == .left ? (snapshot.fable ?? snapshot.weekly) : snapshot.fiveHour
+        return side == .left ? (snapshot.featuredModel ?? snapshot.weekly) : snapshot.fiveHour
     }
 
     func setFlank(_ side: Side, key: String) {
@@ -160,7 +161,9 @@ final class UsageModel: ObservableObject {
 
     private func updatePace(_ snap: UsageSnapshot) {
         let now = Date()
-        let samples = PaceEngine.record(snap, now: now)
+        let samples = PaceEngine.appending(snap, to: paceSamples ?? PaceEngine.loadHistory(), now: now)
+        paceSamples = samples
+        PaceEngine.persist(samples)
         var next: [String: Pace] = [:]
         for b in snap.buckets {
             let series = PaceEngine.series(from: samples, key: b.key, resetAt: b.resetAt)
