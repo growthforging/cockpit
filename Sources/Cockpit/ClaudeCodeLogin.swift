@@ -53,8 +53,6 @@ enum ClaudeCodeLogin {
     struct Record {
         var service: String
         var account: String
-        var json: [String: Any]
-        var oauth: [String: Any]
         var token: ClaudeCodeToken
         var refreshToken: String?
     }
@@ -99,11 +97,14 @@ enum ClaudeCodeLogin {
         for rt in tokensToTry {
             switch await requestRefresh(refreshToken: rt, scopes: rec.token.scopes, subscription: rec.token.subscription) {
             case .success(let pair):
-                let stored = writeBack(rec, token: pair.0, refreshToken: pair.1)
+                // Cockpit never writes this Keychain item. Updating an item another app
+                // created resets its access list, after which the Claude Code CLI has to ask
+                // for the login password on every single read. The renewed pair lives in
+                // ~/.cockpit instead, at 0600.
                 var cached = pair.0
-                if !stored { cached.refreshToken = pair.1 }
+                cached.refreshToken = pair.1
                 writeCache(cached)
-                note(stored ? " · renewed + written back" : " · renewed (kept locally)")
+                note(" · renewed (kept in ~/.cockpit)")
                 return .success(pair.0)
             case .failure(let f):
                 lastFailure = f
@@ -149,30 +150,6 @@ enum ClaudeCodeLogin {
         } catch {
             return .failure(.refreshFailed("offline"))
         }
-    }
-
-    // Same fields the CLI writes (accessToken, refreshToken, expiresAt in ms, scopes), so
-    // the next `claude` finds a live login instead of a rotated-out one.
-    private static func writeBack(_ rec: Record, token: ClaudeCodeToken, refreshToken: String) -> Bool {
-        var json = rec.json
-        var oauth = rec.oauth
-        oauth["accessToken"] = token.accessToken
-        oauth["refreshToken"] = refreshToken
-        oauth["expiresAt"] = Int((token.expiresAt ?? Date()).timeIntervalSince1970 * 1000)
-        oauth["scopes"] = token.scopes
-        json["claudeAiOauth"] = oauth
-        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return false }
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: rec.service,
-        ]
-        if !rec.account.isEmpty { query[kSecAttrAccount as String] = rec.account }
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status != errSecSuccess {
-            note(" · Keychain write-back failed (\(status))")
-            return false
-        }
-        return true
     }
 
     // MARK: - Reading
@@ -278,7 +255,7 @@ enum ClaudeCodeLogin {
         )
         if !scopes.isEmpty, !scopes.contains("user:profile") { return .failure(.noScope) }
         let acct = dict[kSecAttrAccount as String] as? String ?? account ?? ""
-        return .success(Record(service: service, account: acct, json: json, oauth: oauth, token: t, refreshToken: oauth["refreshToken"] as? String))
+        return .success(Record(service: service, account: acct, token: t, refreshToken: oauth["refreshToken"] as? String))
     }
 
     // MARK: - Cache

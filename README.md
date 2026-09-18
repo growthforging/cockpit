@@ -72,7 +72,9 @@ Reversing wheel events requires it, and so does sending Command-V when you paste
 
 Per-model numbers come from an Anthropic endpoint that needs the login the Claude Code command line stores in your Keychain. macOS asks before Cockpit reads it, and choosing Always Allow means it never asks again.
 
-Access tokens expire after a few hours, and the command line only renews them while it runs. Cockpit therefore renews the login itself through the same endpoint, client id, and scopes, then writes the new pair back so `claude` stays signed in too.
+Cockpit only reads that item. Writing to a Keychain item another app created resets the item's access list, and the owner is then asked for the login password on every single read, which is a miserable thing to inflict on a tool you use all day.
+
+Access tokens expire after a few hours, and the command line only renews them while it runs. When one expires, Cockpit renews it against the same endpoint and keeps the result in its own file. Anthropic may issue a fresh refresh token during a renewal, so `claude` can ask you to sign in once more the next time you run it.
 
 ### Notifications
 
@@ -96,7 +98,7 @@ Nothing else leaves your Mac. There is no analytics SDK in the binary, and no se
 
 State lives in `~/.cockpit`, a directory kept at mode 0700, with every file inside it written 0600 and repaired on launch if something loosened them. Clipboard history sits there as plain JSON beside plain image files, so anything already running as you can read it. Recording has an off switch in Settings, and the history has a Clear button.
 
-Two things are worth naming plainly. Cockpit writes a live access token to `~/.cockpit/claude-code-login.json`, outside the Keychain, because it has to survive a relaunch. It also rewrites the Claude Code Keychain item whenever it renews the login, which is what keeps `claude` signed in.
+One thing is worth naming plainly. Cockpit writes a live access token to `~/.cockpit/claude-code-login.json`, outside the Keychain, because it has to survive a relaunch. That file is mode 0600, and the Keychain item itself is only ever read.
 
 ## Settings
 
@@ -118,7 +120,9 @@ Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch ge
 
 A bar showing a dash has no data for that window yet. One reading "measuring pace" has too few samples to project from, which takes a few minutes on the session window and a few hours on a weekly one. Where samples are thin, Cockpit falls back to the window's own average once about 15% of it has elapsed. The local-log estimate carries no reset time at all, so its bars stay on "measuring pace" until you connect one of the other two sources.
 
-When the usage panel reports an expired login, run `claude` once and sign in. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back.
+When the usage panel reports an expired login, run `claude` once and sign in.
+
+If macOS starts asking for your login password every time something reads the `Claude Code-credentials` key, a build before 2026-09-18 rewrote that item and reset its access list. Click Always Allow once on the prompt to restore it. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back.
 
 ## Uninstall
 

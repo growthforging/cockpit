@@ -31,7 +31,7 @@ struct SettingsView: View {
                     Button("Ask for Keychain access again") { usage.retryLogin() }
                 }
                 Toggle("Show unlabeled windows the usage API returns", isOn: $usage.showUnlabeledBuckets)
-                Text("Fable, Opus and the other per-model windows only come from Anthropic's usage endpoint, which needs the login Claude Code keeps in your Keychain. macOS asks before Cockpit reads it. Access tokens last hours, so Cockpit renews the login the same way the CLI does, using the same endpoint, client id and scopes, then writes the renewed pair back into that same Keychain item so `claude` stays signed in. The current access token is cached at ~/.cockpit/claude-code-login.json, mode 0600, and a renewed refresh token lands there too on the rare occasion the Keychain write-back fails.")
+                Text("Fable, Opus and the other per-model windows only come from Anthropic's usage endpoint, which needs the login Claude Code keeps in your Keychain. macOS asks before Cockpit reads it. Cockpit only ever reads that item. Writing to a Keychain item another app created resets its access list, and the owner then has to type the login password on every single read. Access tokens last hours, so when one expires Cockpit renews it and keeps the result in ~/.cockpit/claude-code-login.json at mode 0600. Anthropic may issue a fresh refresh token during a renewal, in which case `claude` asks you to sign in once more the next time you run it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
