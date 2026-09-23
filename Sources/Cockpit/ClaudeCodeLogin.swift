@@ -58,7 +58,8 @@ enum ClaudeCodeLogin {
     }
 
     static func current(allowKeychain: Bool) async -> Result<ClaudeCodeToken, Failure> {
-        if let cached = readCache(), let exp = cached.expiresAt, exp.timeIntervalSinceNow > 300 {
+        if let cached = readCache(), !cached.accessToken.isEmpty,
+           let exp = cached.expiresAt, exp.timeIntervalSinceNow > 300 {
             return .success(cached)
         }
         guard allowKeychain else { return .failure(.notFound) }
@@ -69,6 +70,19 @@ enum ClaudeCodeLogin {
     static func fromKeychain(forceRefresh: Bool) async -> Result<ClaudeCodeToken, Failure> {
         switch readRecord() {
         case .failure(let f):
+            // The Keychain copy is unusable, but a refresh token cached here earlier is
+            // still a way back in. Throwing it away is what made the per-model windows
+            // vanish while a perfectly good credential sat on disk.
+            if let cached = readCache(), let stashed = cached.refreshToken, !stashed.isEmpty {
+                note(" · keychain unusable, renewing from the cached refresh token")
+                let fallback = Record(
+                    service: service,
+                    account: "",
+                    token: ClaudeCodeToken(accessToken: "", expiresAt: nil, scopes: cached.scopes, subscription: cached.subscription),
+                    refreshToken: stashed
+                )
+                return await refresh(fallback)
+            }
             return .failure(f)
         case .success(let rec):
             // A stash exists only because a write-back failed, which means the Keychain's
@@ -76,7 +90,8 @@ enum ClaudeCodeLogin {
             // here would also write a record with no refreshToken over the cache and lose
             // the only live copy, so renew instead.
             let stash = readCache()?.refreshToken
-            if !forceRefresh, stash == nil, let exp = rec.token.expiresAt, exp.timeIntervalSinceNow > 120 {
+            if !forceRefresh, stash == nil, !rec.token.accessToken.isEmpty,
+               let exp = rec.token.expiresAt, exp.timeIntervalSinceNow > 120 {
                 writeCache(rec.token)
                 return .success(rec.token)
             }
@@ -238,12 +253,34 @@ enum ClaudeCodeLogin {
         guard status == errSecSuccess else {
             return .failure(status == errSecItemNotFound ? .notFound : .denied)
         }
-        guard let dict = item as? [String: Any],
-              let data = dict[kSecValueData as String] as? Data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = json["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String, !token.isEmpty
-        else { return .failure(.malformed) }
+        // Broken apart so an unreadable item says which step failed. Only key names and
+        // byte counts are recorded, never a value.
+        guard let dict = item as? [String: Any] else {
+            note(" · item was not a dictionary")
+            return .failure(.malformed)
+        }
+        guard let data = dict[kSecValueData as String] as? Data else {
+            note(" · attributes returned but no data (attrs: \(dict.keys.sorted().joined(separator: ",")))")
+            return .failure(.malformed)
+        }
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            note(" · payload is not a JSON object (\(data.count) bytes)")
+            return .failure(.malformed)
+        }
+        guard let oauth = json["claudeAiOauth"] as? [String: Any] else {
+            note(" · no claudeAiOauth; top-level keys: \(json.keys.sorted().joined(separator: ","))")
+            return .failure(.malformed)
+        }
+        // An empty access token beside a live refresh token is not a broken item: it is
+        // Claude Code saying "this one expired, renew it". Treating that as unreadable is
+        // what made the per-model windows silently disappear.
+        let token = (oauth["accessToken"] as? String) ?? ""
+        let storedRefresh = (oauth["refreshToken"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard !token.isEmpty || storedRefresh != nil else {
+            note(" · neither an access token nor a refresh token; oauth keys: \(oauth.keys.sorted().joined(separator: ","))")
+            return .failure(.malformed)
+        }
+        if token.isEmpty { note(" · access token empty, renewing from the Keychain's refresh token") }
 
         let scopes = oauth["scopes"] as? [String] ?? []
         let exp = (oauth["expiresAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
@@ -255,7 +292,7 @@ enum ClaudeCodeLogin {
         )
         if !scopes.isEmpty, !scopes.contains("user:profile") { return .failure(.noScope) }
         let acct = dict[kSecAttrAccount as String] as? String ?? account ?? ""
-        return .success(Record(service: service, account: acct, token: t, refreshToken: oauth["refreshToken"] as? String))
+        return .success(Record(service: service, account: acct, token: t, refreshToken: storedRefresh))
     }
 
     // MARK: - Cache
