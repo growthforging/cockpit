@@ -26,12 +26,16 @@ struct ClipsTab: View {
             SearchField(
                 text: $query,
                 focused: $searchFocused,
-                onDown: { move(1) },
-                onUp: { move(-1) },
+                // While a search is typed, ←/→ belong to the text, so ↑/↓ step one card at
+                // a time and every match stays reachable.
+                onDown: { move(query.isEmpty ? IslandMetrics.clipColumns : 1) },
+                onUp: { move(query.isEmpty ? -IslandMetrics.clipColumns : -1) },
+                onLeft: { move(-1) },
+                onRight: { move(1) },
                 onReturn: { if let it = filtered[safe: selected] { paste(it) } },
                 onEscape: onClose
             )
-            list.frame(height: IslandMetrics.clipsListHeight)
+            grid.frame(height: IslandMetrics.clipsGridHeight)
             footer.frame(height: 20)
         }
         .padding(IslandMetrics.pad)
@@ -44,15 +48,15 @@ struct ClipsTab: View {
         .onExitCommand(perform: onClose)
     }
 
-    private var list: some View {
+    private var grid: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 2) {
-                    if filtered.isEmpty {
-                        empty
-                    } else {
+                if filtered.isEmpty {
+                    empty
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: IslandMetrics.clipColumns), spacing: 8) {
                         ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, item in
-                            ClipRow(
+                            ClipCard(
                                 item: item,
                                 selected: idx == selected,
                                 flash: flash?.id == item.id ? flash?.text : nil,
@@ -63,6 +67,7 @@ struct ClipsTab: View {
                                 onPin: { clips.togglePin(item) },
                                 onDelete: { clips.delete(item) }
                             )
+                            .frame(height: IslandMetrics.clipCardHeight)
                             .id(item.id)
                         }
                     }
@@ -84,7 +89,7 @@ struct ClipsTab: View {
                 .foregroundStyle(Ink.dim)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: IslandMetrics.clipsListHeight)
+        .frame(height: IslandMetrics.clipsGridHeight)
     }
 
     private var footer: some View {
@@ -131,6 +136,8 @@ struct SearchField: View {
     var focused: FocusState<Bool>.Binding
     let onDown: () -> Void
     let onUp: () -> Void
+    let onLeft: () -> Void
+    let onRight: () -> Void
     let onReturn: () -> Void
     let onEscape: () -> Void
 
@@ -146,6 +153,9 @@ struct SearchField: View {
                 .focused(focused)
                 .onKeyPress(.downArrow) { onDown(); return .handled }
                 .onKeyPress(.upArrow) { onUp(); return .handled }
+                // Sideways arrows walk the grid only while there is no text to move through.
+                .onKeyPress(.leftArrow) { guard text.isEmpty else { return .ignored }; onLeft(); return .handled }
+                .onKeyPress(.rightArrow) { guard text.isEmpty else { return .ignored }; onRight(); return .handled }
                 .onKeyPress(.return) { onReturn(); return .handled }
                 .onKeyPress(.escape) { onEscape(); return .handled }
             if !text.isEmpty {
@@ -161,7 +171,9 @@ struct SearchField: View {
     }
 }
 
-struct ClipRow: View {
+// One clip as a card: a few lines of the text, or the picture itself, and where it came
+// from. Click copies; the buttons that appear on hover paste, pin or delete.
+struct ClipCard: View {
     let item: ClipItem
     let selected: Bool
     let flash: String?
@@ -173,53 +185,36 @@ struct ClipRow: View {
     let onDelete: () -> Void
     @State private var hover = false
 
+    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
     var body: some View {
-        HStack(spacing: 9) {
-            leading
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.preview)
-                    .font(.system(size: 12, design: item.kind == .file ? .monospaced : .default))
-                    .foregroundStyle(Ink.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                HStack(spacing: 4) {
-                    if let icon {
-                        Image(nsImage: icon).resizable().interpolation(.high).frame(width: 11, height: 11)
-                    }
-                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        Text(meta(now: ctx.date))
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Ink.faint)
-                            .lineLimit(1)
-                    }
+        VStack(alignment: .leading, spacing: 7) {
+            preview
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HStack(spacing: 5) {
+                if let icon {
+                    Image(nsImage: icon).resizable().interpolation(.high).frame(width: 12, height: 12)
+                }
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    Text(meta(now: ctx.date))
+                        .font(.system(size: 10))
+                        .foregroundStyle(Ink.faint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if item.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(Ink.faint)
                 }
             }
-            Spacer(minLength: 6)
-            if let flash {
-                Text(flash)
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(Level.calm.color)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else if hover {
-                HStack(spacing: 1) {
-                    IconButton(systemName: "arrow.turn.down.left", help: "Paste into the front app", size: 10, action: onPaste)
-                    IconButton(systemName: item.pinned ? "pin.slash" : "pin", help: item.pinned ? "Unpin" : "Pin", size: 10, action: onPin)
-                    IconButton(systemName: "trash", help: "Delete", size: 10, action: onDelete)
-                }
-                .transition(.opacity)
-            } else if item.pinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Ink.faint)
-            }
+            .frame(height: 12)
         }
-        .padding(.horizontal, 8)
-        .frame(height: 36)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(selected ? Color.white.opacity(0.13) : hover ? Color.white.opacity(0.08) : Color.clear)
-        )
-        .contentShape(Rectangle())
+        .padding(10)
+        .background(shape.fill(selected ? Color.white.opacity(0.13) : hover ? Ink.surfaceHover : Ink.surface))
+        .overlay(shape.strokeBorder(selected ? Ink.borderStrong : Ink.border, lineWidth: 0.5))
+        .overlay(alignment: .topTrailing) { corner.padding(6) }
+        .contentShape(shape)
         .onTapGesture(perform: onTap)
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.15), value: hover)
@@ -228,19 +223,52 @@ struct ClipRow: View {
     }
 
     @ViewBuilder
-    private var leading: some View {
+    private var preview: some View {
         if let thumb {
-            Image(nsImage: thumb)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 24, height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            Color.clear
+                .overlay { Image(nsImage: thumb).resizable().interpolation(.high).scaledToFill() }
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        } else if item.kind == .text {
+            // A few hundred characters is plenty for three lines, and keeps a pasted log cheap to draw.
+            Text(String((item.text ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)))
+                .font(.system(size: 11.5))
+                .foregroundStyle(Ink.text)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
         } else {
-            Image(systemName: item.kind == .file ? "doc" : item.kind == .image ? "photo" : "text.alignleft")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Ink.dim)
-                .frame(width: 24, height: 24)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Ink.surface))
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: item.kind == .file ? "doc.fill" : "photo")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ink.dim)
+                Text(item.preview)
+                    .font(.system(size: 11.5, weight: .medium, design: item.kind == .file ? .monospaced : .default))
+                    .foregroundStyle(Ink.text)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    // A confirmation after a click, the actions while the pointer is over the card.
+    @ViewBuilder
+    private var corner: some View {
+        if let flash {
+            Text(flash)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Level.calm.color)
+                .padding(.horizontal, 8)
+                .frame(height: 20)
+                .background(Capsule().fill(Color.black.opacity(0.8)))
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        } else if hover {
+            HStack(spacing: 0) {
+                IconButton(systemName: "arrow.turn.down.left", help: "Paste into the front app", size: 10, action: onPaste)
+                IconButton(systemName: item.pinned ? "pin.slash" : "pin", help: item.pinned ? "Unpin" : "Pin", size: 10, action: onPin)
+                IconButton(systemName: "trash", help: "Delete", size: 10, action: onDelete)
+            }
+            .padding(.horizontal, 2)
+            .background(Capsule().fill(Color.black.opacity(0.8)))
+            .overlay(Capsule().strokeBorder(Ink.border, lineWidth: 0.5))
+            .transition(.opacity)
         }
     }
 

@@ -110,6 +110,13 @@ final class SettingsWindowController {
 enum SettingsOpener {
     @MainActor static func open() { SettingsWindowController.shared.show() }
 
+    // macOS 27 renamed the Accessibility list in Privacy & Security, and people look for
+    // the name they can see.
+    static var accessibilityName: String {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0))
+            ? "Device Control and Data Access" : "Accessibility"
+    }
+
     static func openAccessibility() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
@@ -158,6 +165,18 @@ enum Diagnostics {
         ioQueue.async {
             if let data = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted, .sortedKeys]) {
                 CockpitPaths.writePrivate(data, to: CockpitPaths.paceState)
+            }
+        }
+    }
+
+    // Where the idle readouts went and why: ~/.cockpit/menubar-state.json
+    static func writeMenuBar(_ state: [String: Any]) {
+        CockpitPaths.ensure()
+        var s = state
+        s["updatedAt"] = ISO8601DateFormatter().string(from: Date())
+        ioQueue.async {
+            if let data = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted, .sortedKeys]) {
+                CockpitPaths.writePrivate(data, to: CockpitPaths.menuBarState)
             }
         }
     }

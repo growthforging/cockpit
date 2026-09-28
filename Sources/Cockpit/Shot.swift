@@ -61,7 +61,7 @@ private enum Sample {
 // MARK: - The image
 
 private struct HeroShot: View {
-    private let canvas = CGSize(width: 1100, height: 420)
+    private let canvas = CGSize(width: 1100, height: 330)
     private let menuBarHeight: CGFloat = 32
     private let notchWidth: CGFloat = 185
 
@@ -132,28 +132,24 @@ private struct HeroShot: View {
     private var band: some View {
         HStack(spacing: 0) {
             SegmentedTabs(tab: .constant(.usage))
-                .frame(maxWidth: .infinity)
-            Spacer().frame(width: notchWidth)
+            Spacer(minLength: notchWidth)
             HStack(spacing: 2) {
                 IconButton(systemName: "arrow.clockwise", help: "") {}
                 IconButton(systemName: "gearshape", help: "") {}
                 IconButton(systemName: "power", help: "") {}
             }
-            .frame(maxWidth: .infinity)
         }
+        .padding(.horizontal, IslandMetrics.pad)
         .frame(height: menuBarHeight)
     }
 
     private var content: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                BucketCard(bucket: Sample.session, pace: Sample.sessionPace, precise: false)
-                BucketCard(bucket: Sample.week, pace: Sample.weekPace, precise: false)
-            }
-            .frame(height: IslandMetrics.cardHeight)
-
-            ModelRow(bucket: Sample.fable, pace: Sample.fablePace, precise: false)
-                .frame(height: IslandMetrics.modelRowHeight)
+            BucketGrid(entries: [
+                (Sample.session, Sample.sessionPace),
+                (Sample.week, Sample.weekPace),
+                (Sample.fable, Sample.fablePace),
+            ], precise: false)
 
             HStack(spacing: 8) {
                 SourcePill(source: .login)
@@ -161,6 +157,12 @@ private struct HeroShot: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(Ink.faint)
                 Spacer()
+                Text("Notch")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Ink.faint)
+                // What the pickers read with both sides left on Automatic.
+                FlankChip(side: "Left", name: "Auto · Fable")
+                FlankChip(side: "Right", name: "Auto · Session")
             }
             .frame(height: 22)
         }

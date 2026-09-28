@@ -22,6 +22,10 @@ Colour comes from that projection. A bar at 98% two minutes before its reset sta
 
 Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Each is a number beside a short bar anchored on the camera side. Both stay white while your pace is comfortable, turn yellow when you are running ahead of it, and turn red when you will run out early. Either side can show any window you like, or nothing.
 
+Chrome and other apps with long menu bars reach under the left number on a 14-inch screen. When that happens the number moves to the right of the notch and your menus stay clear. If the menu-bar icons leave no room for two numbers there, only the one closer to trouble stays.
+
+Some apps have more menus than fit left of the camera, and macOS continues them on its right. While one of those is in front, both numbers step aside. Finding where another app's menus end takes Accessibility.
+
 ### Where the numbers come from
 
 Cockpit tries three sources in order, and the panel always says which one answered.
@@ -34,7 +38,7 @@ That third one is a guess, and the panel labels it as such. The budget was measu
 
 ## Clipboard
 
-Everything you copy lands in a searchable list. Text and files and images all count, as do screenshots, which Cockpit picks up from wherever macOS saves them. Press Shift-Command-V anywhere to open the list, type to filter, use the arrow keys to move, then press Return to paste into whatever app you came from. Clicking a row copies it and leaves the list open.
+Everything you copy lands in a searchable grid of cards, three across. Text and files and images all count, as do screenshots, which Cockpit picks up from wherever macOS saves them and shows as pictures. Press Shift-Command-V anywhere to open it, type to filter, use the arrow keys to move, then press Return to paste into whatever app you came from. Clicking a card copies it and leaves the grid open.
 
 Some launchers claim Shift-Command-V first. If yours does, Settings says so and the list still opens from the island.
 
@@ -48,9 +52,10 @@ macOS has one natural-scrolling switch shared by the trackpad and the mouse, whi
 
 ```sh
 git clone https://github.com/growthforging/cockpit.git
-cd cockpit
-./build.sh && cp -R Cockpit.app /Applications/ && open /Applications/Cockpit.app
+cd cockpit && tools/install.sh
 ```
+
+`tools/install.sh` runs `build.sh`, then replaces `/Applications/Cockpit.app` and relaunches it. It refuses to put an ad-hoc build over a properly signed one, for the reason below.
 
 You need Xcode 15.3 or later, for Swift 5.10, or an equivalent Command Line Tools install. `build.sh` compiles, assembles the app bundle, and signs it. A macOS update can leave SwiftPM unable to run while the compiler still works, and when that happens `build.sh` compiles with `swiftc` directly against the newest SDK the compiler accepts.
 
@@ -58,7 +63,9 @@ One detail is worth knowing before you grant any permissions. macOS ties Accessi
 
 If your Keychain holds a code-signing identity, `build.sh` uses it, so your grants survive every rebuild. An Apple Development certificate works.
 
-The other route is `tools/make-signing-identity.sh`, run once. It makes a private signing identity in its own keychain file under `~/.cockpit-signing`, touches neither your login keychain nor any of your passwords, and `build.sh` picks it up from then on.
+The other route is `tools/make-signing-identity.sh`, run once. It makes a private signing identity in its own keychain file under `~/.cockpit-signing`, touches neither your login keychain nor any of your passwords, and `build.sh` picks it up from then on. If `build.sh` ever reports that this keychain no longer unlocks, `tools/make-signing-identity.sh --reset` sets the old one aside and makes a new one.
+
+A new identity means granting Accessibility again, and macOS will not ask by itself. Remove Cockpit from the Accessibility list, add it back, and switch it on.
 
 With no identity at all, `build.sh` falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
 
@@ -70,7 +77,9 @@ Cockpit works in some useful form whatever you refuse.
 
 ### Accessibility
 
-Reversing wheel events requires it, and so does sending Command-V when you paste from the clipboard list. macOS asks the first time you switch the wheel flip on, then never opens that dialog again by itself. Nothing prompts you at launch. If you refuse, the clipboard list goes on copying when you click a row, and the usage panel is unaffected.
+macOS 27 lists this permission as Device Control and Data Access, under Privacy and Security. Reversing wheel events requires it, and so does sending Command-V when you paste from the clipboard. The notch uses it too, to find where the front app's menus end. macOS asks the first time you switch the wheel flip on, then never opens that dialog again by itself.
+
+Nothing prompts you at launch. Without it a click on a clip still copies it and the usage panel is unaffected. The notch numbers then stay on both sides of the camera, even over a long menu bar.
 
 ### Keychain
 
@@ -120,13 +129,13 @@ Cockpit writes down what it did. These three files in `~/.cockpit` hold the answ
 | `pace-state.json` | the projection behind each bar |
 | `state.json` | what Cockpit believes it drew, and on which screens |
 
-Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made, and `--lab out.png` draws the notch readouts in every state, optionally over a screenshot you pass after it.
+Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made, `--lab out.png` draws the notch readouts in every state, and `--layout-lab folder` draws the idle layouts and the open panel. Both take a screenshot to draw over as an optional extra argument.
 
 A bar showing a dash has no data for that window yet. One reading "measuring pace" has too few samples to project from, which takes a few minutes on the session window and a few hours on a weekly one. Where samples are thin, Cockpit falls back to the window's own average once about 15% of it has elapsed. The local-log estimate carries no reset time at all, so its bars stay on "measuring pace" until you connect one of the other two sources.
 
 When the usage panel reports an expired login, run `claude` once and sign in.
 
-If macOS starts asking for your login password every time something reads the `Claude Code-credentials` key, a build before 2026-09-18 rewrote that item and reset its access list. Click Always Allow once on the prompt to restore it. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back.
+If macOS starts asking for your login password every time something reads the `Claude Code-credentials` key, a build before 2026-09-18 rewrote that item and reset its access list. Click Always Allow once on the prompt to restore it. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back. On macOS 27 that list is called Device Control and Data Access.
 
 ## Uninstall
 
@@ -138,11 +147,11 @@ rm -rf /Applications/Cockpit.app ~/.cockpit ~/Library/LaunchAgents/com.growthfor
 defaults delete com.growthforging.cockpit
 ```
 
-Then remove Cockpit from the Accessibility list in System Settings, under Privacy and Security.
+Then remove Cockpit from the Accessibility list in System Settings, under Privacy and Security. macOS 27 calls that list Device Control and Data Access.
 
 ## Contributing
 
-Issues and pull requests are welcome. The code is about 4,000 lines of Swift with no dependencies, one concern per file. `UsageService` and `Pace` produce the numbers, `Clipboard` keeps the history, the event tap lives in `ScrollFlip`, and the window itself is `NotchHUD` plus `IslandView`.
+Issues and pull requests are welcome. The code is about 5,000 lines of Swift with no dependencies, one concern per file. `UsageService` and `Pace` produce the numbers, `Clipboard` keeps the history, the event tap lives in `ScrollFlip`, and the window itself is `NotchHUD` plus `IslandView`. `MenuBarSpace` finds where other apps' menus end.
 
 Build with `./build.sh`. It fails loudly when the toolchain is unhappy, so a stale bundle never reaches `/Applications`.
 

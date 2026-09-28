@@ -9,6 +9,12 @@
 # It lives in its own keychain file under ~/.cockpit-signing, never in your login
 # keychain, and needs none of your passwords. Nothing about it is trusted system-wide:
 # it signs your own local build and does nothing else.
+#
+# --reset moves an existing one aside (to ~/.cockpit-signing.old-<time>) and makes a
+# fresh one, for when build.sh reports that it no longer unlocks. The new identity has
+# a different certificate, and macOS will not ask again by itself: after the next build,
+# remove Cockpit from the Accessibility list (Device Control and Data Access on macOS 27)
+# and add it back.
 set -euo pipefail
 trap 'echo "✗ make-signing-identity.sh failed at line $LINENO" >&2' ERR
 
@@ -16,8 +22,14 @@ DIR="${COCKPIT_SIGNING_DIR:-$HOME/.cockpit-signing}"
 KC="$DIR/cockpit-signing.keychain-db"
 NAME="Cockpit Local Signing"
 
+if [ "${1:-}" = "--reset" ] && [ -e "$DIR" ]; then
+    OLD="$DIR.old-$(date +%Y%m%d-%H%M%S)"
+    mv "$DIR" "$OLD"
+    echo "Moved the old identity aside to $OLD"
+fi
+
 if [ -f "$KC" ]; then
-    echo "Already set up at $KC"
+    echo "Already set up at $KC (tools/make-signing-identity.sh --reset makes a fresh one)"
     exit 0
 fi
 
@@ -68,4 +80,6 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KC
 security lock-keychain "$KC"
 
 echo "Created \"$NAME\" in $KC"
-echo "build.sh will sign with it from now on. Grant Accessibility once more after the next build, and it holds."
+echo "build.sh will sign with it from now on. macOS will not ask for Accessibility again by itself: after the next build,"
+echo "remove Cockpit from Privacy & Security → Accessibility (Device Control and Data Access on macOS 27), add it back"
+echo "and switch it on. From then on it holds."

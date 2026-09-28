@@ -109,12 +109,12 @@ struct SettingsView: View {
 
             Section("Mouse wheel") {
                 Toggle("Reverse mouse wheel (trackpad stays natural)", isOn: $scroll.enabled)
-                LabeledContent("Accessibility") {
+                LabeledContent(SettingsOpener.accessibilityName) {
                     Text(scroll.axTrusted ? "granted" : "not granted")
                         .foregroundStyle(scroll.axTrusted ? .green : .orange)
                 }
                 if !scroll.axTrusted {
-                    Button("Open Accessibility settings") {
+                    Button("Open \(SettingsOpener.accessibilityName) settings") {
                         scroll.requestPermission(prompt: true)
                         SettingsOpener.openAccessibility()
                     }

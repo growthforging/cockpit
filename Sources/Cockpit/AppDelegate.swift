@@ -35,6 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let y = i + 3 < args.count ? CGFloat(Double(args[i + 3]) ?? 0) : 0
             exit(DesignLab.render(to: path, backdrop: backdrop, yOffset: y) ? 0 : 1)
         }
+        // --layout-lab dir [backdrop image] [y offset]: idle placement and open-panel layouts.
+        if let i = CommandLine.arguments.firstIndex(of: "--layout-lab") {
+            let args = CommandLine.arguments
+            let dir = i + 1 < args.count ? args[i + 1] : "layout-lab"
+            let backdrop = i + 2 < args.count ? args[i + 2] : nil
+            let y = i + 3 < args.count ? CGFloat(Double(args[i + 3]) ?? 0) : 0
+            exit(LayoutLab.render(to: dir, backdrop: backdrop, yOffset: y) ? 0 : 1)
+        }
 
         // One copy only: a second would double the pings and the gauges.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.growthforging.cockpit"

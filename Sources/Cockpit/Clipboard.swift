@@ -52,7 +52,12 @@ final class ClipboardStore: ObservableObject {
     private var lastCount = -1
     private var timer: Timer?
     private var saveWork: DispatchWorkItem?
-    private var thumbs: [UUID: NSImage] = [:]
+    // Card-sized thumbnails are a few hundred kilobytes each, so only recent ones stay.
+    private let thumbs: NSCache<NSUUID, NSImage> = {
+        let c = NSCache<NSUUID, NSImage>()
+        c.countLimit = 80
+        return c
+    }()
     private var icons: [String: NSImage] = [:]
 
     private var shotSource: DispatchSourceFileSystemObject?
@@ -326,16 +331,22 @@ final class ClipboardStore: ObservableObject {
 
     func thumb(for item: ClipItem) -> NSImage? {
         guard item.kind == .image, let f = item.imageFile else { return nil }
-        if let t = thumbs[item.id] { return t }
+        if let t = thumbs.object(forKey: item.id as NSUUID) { return t }
         guard let img = NSImage(contentsOf: CockpitPaths.dir.appendingPathComponent(f)) else { return nil }
-        let side: CGFloat = 48
-        let scale = min(side / max(1, img.size.width), side / max(1, img.size.height), 1)
-        let size = NSSize(width: max(1, img.size.width * scale), height: max(1, img.size.height * scale))
+        // Exactly what a clip card shows: the centre of the image cropped to the card's
+        // picture area, at that size and never larger than the original. A tall or very
+        // long screenshot therefore costs no more than a wide one.
+        let box = NSSize(width: 220, height: 64)
+        let w = max(1, img.size.width), h = max(1, img.size.height)
+        let crop = NSSize(width: min(w, h * box.width / box.height), height: min(h, w * box.height / box.width))
+        let from = NSRect(x: (w - crop.width) / 2, y: (h - crop.height) / 2, width: crop.width, height: crop.height)
+        let scale = min(box.width / crop.width, 1)
+        let size = NSSize(width: max(1, crop.width * scale), height: max(1, crop.height * scale))
         let t = NSImage(size: size)
         t.lockFocus()
-        img.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1)
+        img.draw(in: NSRect(origin: .zero, size: size), from: from, operation: .sourceOver, fraction: 1)
         t.unlockFocus()
-        thumbs[item.id] = t
+        thumbs.setObject(t, forKey: item.id as NSUUID)
         return t
     }
 
@@ -376,7 +387,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func removeFile(of item: ClipItem) {
-        thumbs[item.id] = nil
+        thumbs.removeObject(forKey: item.id as NSUUID)
         if let f = item.imageFile { try? FileManager.default.removeItem(at: CockpitPaths.dir.appendingPathComponent(f)) }
     }
 

@@ -4,23 +4,17 @@ struct UsageTab: View {
     @EnvironmentObject var usage: UsageModel
 
     var body: some View {
+        let buckets = [usage.snapshot.fiveHour, usage.snapshot.weekly] + usage.modelBuckets
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                BucketCard(bucket: usage.snapshot.fiveHour, pace: usage.pace(for: "five_hour"), precise: usage.precise)
-                BucketCard(bucket: usage.snapshot.weekly, pace: usage.pace(for: "seven_day"), precise: usage.precise)
-            }
-            .frame(height: IslandMetrics.cardHeight)
-
-            ForEach(usage.modelBuckets) { b in
-                ModelRow(bucket: b, pace: usage.pace(for: b.key), precise: usage.precise)
-                    .frame(height: IslandMetrics.modelRowHeight)
-            }
+            BucketGrid(entries: buckets.map { ($0, usage.pace(for: $0.key)) }, precise: usage.precise)
 
             if let note = usage.snapshot.note, !note.isEmpty {
                 noteRow(note).frame(height: IslandMetrics.noteHeight)
             }
-            sourceRow.frame(height: 22)
-            notchRow.frame(height: 22)
+            if let hint = usage.loginHint {
+                hintRow(hint).frame(height: 22)
+            }
+            footer.frame(height: 22)
         }
         .padding(IslandMetrics.pad)
     }
@@ -45,7 +39,29 @@ struct UsageTab: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Level.caution.color.opacity(0.10)))
     }
 
-    private var sourceRow: some View {
+    // A login problem gets a row of its own: it can be long, and it matters more than
+    // anything else down here.
+    private func hintRow(_ hint: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "key")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Ink.faint)
+            Button(action: { usage.retryLogin() }) {
+                Text(hint)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Ink.dim)
+                    .underline(true, color: Ink.faint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.plain)
+            .help("\(hint)\n\nPer-model windows come from the login Claude Code keeps in your Keychain. Run `claude` in a terminal and sign in, then click here to look again.")
+            Spacer(minLength: 0)
+        }
+    }
+
+    // Where the numbers came from on the left, what the idle notch shows on the right.
+    private var footer: some View {
         HStack(spacing: 8) {
             SourcePill(source: usage.snapshot.source)
             TimelineView(.periodic(from: .now, by: 5)) { ctx in
@@ -53,44 +69,15 @@ struct UsageTab: View {
                     Text("updated \(fmtAgo(usage.snapshot.asOf, now: ctx.date)) ago")
                         .font(.system(size: 10.5))
                         .foregroundStyle(Ink.faint)
+                        .lineLimit(1)
                 }
             }
-            Spacer()
-            if let hint = loginHint {
-                Button(action: { usage.retryLogin() }) {
-                    Text(hint)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(Ink.dim)
-                        .underline(true, color: Ink.faint)
-                }
-                .buttonStyle(.plain)
-                .help("Per-model windows come from the login Claude Code keeps in your Keychain. Run `claude` in a terminal and sign in, then click here to look again.")
-            }
-        }
-    }
-
-    // What the two idle readouts either side of the notch show.
-    private var notchRow: some View {
-        HStack(spacing: 8) {
+            Spacer(minLength: 8)
             Text("Notch")
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ink.faint)
             FlankPicker(side: .left)
             FlankPicker(side: .right)
-            Spacer()
-        }
-    }
-
-    // Shown until the Claude Code login is feeding per-model numbers.
-    private var loginHint: String? {
-        guard usage.useClaudeCodeLogin else { return "Connect Claude Code login" }
-        switch usage.loginState {
-        case .connected: return nil
-        case .off: return "Connect Claude Code login"
-        case .denied: return "Keychain declined · ask again"
-        case .notFound: return "No Claude Code login · re-check"
-        case .noScope: return "Login lacks the usage scope"
-        case .failed(let why): return why
         }
     }
 }
@@ -115,26 +102,36 @@ struct FlankPicker: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(side == .left ? "Left" : "Right")
-                    .foregroundStyle(Ink.faint)
-                Text(usage.flankChoiceName(side))
-                    .foregroundStyle(Ink.text)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7.5, weight: .bold))
-                    .foregroundStyle(Ink.faint)
-            }
-            .font(.system(size: 10.5, weight: .medium))
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Capsule().fill(Ink.surface))
-            .contentShape(Capsule())
+            FlankChip(side: side == .left ? "Left" : "Right", name: usage.flankChoiceName(side))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("What the \(side == .left ? "left" : "right") side of the notch shows while idle")
+    }
+}
+
+// The face of a FlankPicker, on its own so the README picture draws the same chip.
+struct FlankChip: View {
+    let side: String
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(side)
+                .foregroundStyle(Ink.faint)
+            Text(name)
+                .foregroundStyle(Ink.text)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7.5, weight: .bold))
+                .foregroundStyle(Ink.faint)
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Capsule().fill(Ink.surface))
+        .contentShape(Capsule())
     }
 }
 
@@ -147,18 +144,25 @@ struct BucketCard: View {
         Card {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
+                    // Three cards to a row leave about 200pt each: the name and subtitle
+                    // shrink a little before they would cut off, the number never does.
                     VStack(alignment: .leading, spacing: 1) {
                         Text(bucket.title)
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(Ink.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         Text(bucket.subtitle)
                             .font(.system(size: 10.5))
                             .foregroundStyle(Ink.faint)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
-                    Spacer()
+                    Spacer(minLength: 6)
                     Text(bucket.synthesized ? "—" : fmtPct(bucket.pct, precise: precise))
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .monospacedDigit()
+                        .fixedSize()
                         .foregroundStyle(bucket.synthesized ? Ink.faint : pace.risk.color)
                         .contentTransition(.numericText(value: bucket.pct))
                         .animation(.spring(response: 0.5, dampingFraction: 0.9), value: bucket.pct)
@@ -184,44 +188,24 @@ struct BucketCard: View {
     }
 }
 
-struct ModelRow: View {
-    let bucket: UsageBucket
-    let pace: Pace
+// Every usage window as a card, side by side: session and week first, then each
+// model limit, wrapped by IslandMetrics.usageColumns.
+struct BucketGrid: View {
+    let entries: [(bucket: UsageBucket, pace: Pace)]
     let precise: Bool
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(bucket.title)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(Ink.text)
-                        Text(bucket.subtitle)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Ink.faint)
-                    }
-                    Spacer()
-                    Text(fmtPct(bucket.pct, precise: precise))
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(pace.risk.color)
-                        .contentTransition(.numericText(value: bucket.pct))
-                        .animation(.spring(response: 0.5, dampingFraction: 0.9), value: bucket.pct)
-                }
-                PaceBar(pct: bucket.pct, pace: pace, height: 6)
-                HStack(spacing: 6) {
-                    VerdictLine(pace: pace)
-                    if let reset = fmtReset(bucket.resetAt) {
-                        Text("· " + reset.replacingOccurrences(of: "resets ", with: "↻ "))
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Ink.faint)
-                            .lineLimit(1)
+        let columns = IslandMetrics.usageColumns(entries.count)
+        let rows = stride(from: 0, to: entries.count, by: columns).map { Array(entries[$0..<min($0 + columns, entries.count)]) }
+        VStack(spacing: 10) {
+            ForEach(rows.indices, id: \.self) { r in
+                HStack(spacing: 10) {
+                    ForEach(rows[r], id: \.bucket.key) { e in
+                        BucketCard(bucket: e.bucket, pace: e.pace, precise: precise)
                     }
                 }
+                .frame(height: IslandMetrics.cardHeight)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
         }
     }
 }

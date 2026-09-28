@@ -37,7 +37,7 @@ struct PopoverView: View {
                 }
             }
         }
-        .frame(width: 400)
+        .frame(width: IslandMetrics.expandedWidth)
         .background(Color.black.opacity(0.94))
         .preferredColorScheme(.dark)
     }

@@ -70,6 +70,20 @@ final class UsageModel: ObservableObject {
 
     var precise: Bool { snapshot.precise }
     var showsNote: Bool { (snapshot.note?.isEmpty == false) }
+
+    // Shown until the Claude Code login is feeding per-model numbers.
+    var loginHint: String? {
+        guard useClaudeCodeLogin else { return "Connect Claude Code login" }
+        switch loginState {
+        case .connected: return nil
+        case .off: return "Connect Claude Code login"
+        case .denied: return "Keychain declined · ask again"
+        case .notFound: return "No Claude Code login · re-check"
+        case .noScope: return "Login lacks the usage scope"
+        case .failed(let why): return why
+        }
+    }
+    var showsLoginHint: Bool { loginHint != nil }
     // Anthropic's endpoint also returns windows under internal codenames (e.g. an
     // unreleased limit). Those stay hidden while they read 0%, unless asked for.
     var modelBuckets: [UsageBucket] {

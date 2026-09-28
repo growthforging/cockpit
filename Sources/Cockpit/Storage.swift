@@ -12,6 +12,7 @@ enum CockpitPaths {
     static var state: URL { dir.appendingPathComponent("state.json") }
     static var usageState: URL { dir.appendingPathComponent("usage-state.json") }
     static var paceState: URL { dir.appendingPathComponent("pace-state.json") }
+    static var menuBarState: URL { dir.appendingPathComponent("menubar-state.json") }
     static var loginCache: URL { dir.appendingPathComponent("claude-code-login.json") }
 
     // createDirectory ignores `attributes:` when the path already exists, so the mode is

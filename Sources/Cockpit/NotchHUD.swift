@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 struct NotchGeometry {
     var screen: NSScreen
@@ -23,7 +24,7 @@ struct NotchGeometry {
         }
         if let g = detect() {
             out += "notch: width=\(g.notchWidth) height=\(g.notchHeight)\n"
-            out += "idle bar: width=\(g.notchWidth + 2 * NotchReadout.flankWidth) height=\(g.notchHeight)\n"
+            out += "idle bar: width=\(g.notchWidth + 2 * NotchReadout.flankWidth) height=\(g.notchHeight) (split)\n"
             out += "island: width=\(IslandMetrics.expandedWidth) window=\(IslandMetrics.windowWidth)x\(IslandMetrics.windowHeight)"
         } else {
             out += "no notch detected (menu-bar mode only)"
@@ -85,6 +86,10 @@ final class NotchHUD {
     private var clickMonitors: [Any] = []
     private var previousApp: NSRunningApplication?
     private var keyboardMode = false        // opened by the hotkey: key window, closes on outside click
+    private let menuBar = MenuBarSpace()
+    private var lastLoggedReading: MenuBarSpace.Reading?
+    private var lastLoggedLayout: IdleLayout?
+    private var usageChange: AnyCancellable?
 
     private let collapseGrace: TimeInterval = 0.16
     private let expandDwell: TimeInterval = 0.12   // ignore a cursor merely sweeping past
@@ -148,8 +153,16 @@ final class NotchHUD {
                 Task { @MainActor in self?.panel?.orderFrontRegardless() }
             }))
             startTracking()
+
+            menuBar.onChange = { [weak self] _ in self?.placeReadouts() }
+            menuBar.start()
+            // Which readouts exist decides whether there is anything to move.
+            usageChange = usage.objectWillChange.sink { [weak self] _ in
+                DispatchQueue.main.async { self?.placeReadouts() }
+            }
         }
         position()
+        placeReadouts()
     }
 
     func hide() {
@@ -161,6 +174,8 @@ final class NotchHUD {
         hosting = nil
         observers.forEach { $0.0.removeObserver($0.1) }
         observers.removeAll()
+        menuBar.stop()
+        usageChange = nil
         island.expanded = false
         island.pinned = false
         keyboardMode = false
@@ -170,6 +185,51 @@ final class NotchHUD {
     func applyPrefs() {
         island.showFlanks = usage.notchFlanks
         island.cornerRadius = CGFloat(usage.notchCornerRadius)
+    }
+
+    // Keep the idle readouts off the front app's menus. Without Accessibility there is
+    // no way to see where the menus end, so they stay split as before.
+    private func placeReadouts() {
+        guard let geo else { return }
+        // With one set of Spaces across displays only the primary display has a menu bar,
+        // and a notch display without one has nothing to avoid.
+        let notchHasMenuBar = NSScreen.screensHaveSeparateSpaces || geo.screen.frame.origin == .zero
+        let reading = notchHasMenuBar ? menuBar.reading : MenuBarSpace.Reading()
+        let width = geo.screen.frame.width
+        let flank = NotchReadout.flankWidth
+        let s = IslandMetrics.shoulder
+        let margin: CGFloat = 6
+        let notchLeft = (width - geo.notchWidth) / 2
+        let notchRight = (width + geo.notchWidth) / 2
+
+        var layout = IdleLayout.split
+        if let menusEnd = reading.menusEnd, menusEnd + margin > notchLeft - flank - s {
+            if menusEnd > notchLeft {
+                // macOS continued the menus right of the camera, so neither side is free.
+                layout = .notchOnly
+            } else {
+                let both = usage.flankBucket(.left) != nil && usage.flankBucket(.right) != nil
+                let roomForTwo = reading.iconsStart.map { width - $0 - margin >= notchRight + 2 * flank + s } ?? false
+                layout = both && roomForTwo ? .stacked : .single
+            }
+        }
+        if island.idleLayout != layout {
+            island.idleLayout = layout
+            lastMouse = NSPoint(x: -1, y: -1)
+        }
+        if reading != lastLoggedReading || layout != lastLoggedLayout {
+            lastLoggedReading = reading
+            lastLoggedLayout = layout
+            Diagnostics.writeMenuBar([
+                "accessibility": AXIsProcessTrusted(),
+                "menuBarApp": NSWorkspace.shared.menuBarOwningApplication?.localizedName ?? "",
+                "notchHasMenuBar": notchHasMenuBar,
+                "menusEnd": reading.menusEnd.map { Double($0) } ?? -1,
+                "iconsStart": reading.iconsStart.map { Double($0) } ?? -1,
+                "leftFlankStarts": Double(notchLeft - flank - s),
+                "layout": "\(layout)",
+            ])
+        }
     }
 
     private func position() {
@@ -190,29 +250,33 @@ final class NotchHUD {
         island.notchWidth = g.notchWidth
         island.notchHeight = g.notchHeight
         position()
+        placeReadouts()
     }
 
     // MARK: - Geometry
 
     private func currentSize() -> CGSize {
         if island.expanded {
-            return CGSize(width: IslandMetrics.expandedWidth, height: island.expandedHeight(modelBuckets: usage.modelBuckets.count, hasNote: usage.showsNote))
+            return CGSize(width: IslandMetrics.expandedWidth, height: island.expandedHeight(modelBuckets: usage.modelBuckets.count, hasNote: usage.showsNote, hasHint: usage.showsLoginHint))
         }
         return CGSize(width: island.idleWidth, height: island.notchHeight)
     }
+
+    // The idle body can sit off-centre, when a readout has moved clear of the menus.
+    private var currentShift: CGFloat { island.expanded ? 0 : island.idleShift }
 
     private func shapeScreenRect() -> NSRect {
         guard let geo else { return .zero }
         let f = geo.screen.frame
         let s = currentSize()
-        return NSRect(x: f.midX - s.width / 2, y: f.maxY - s.height, width: s.width, height: s.height)
+        return NSRect(x: f.midX + currentShift - s.width / 2, y: f.maxY - s.height, width: s.width, height: s.height)
     }
 
     private func hitRectInWindow() -> NSRect? {
         guard let panel else { return nil }
         let s = currentSize()
         let f = panel.frame
-        return NSRect(x: (f.width - s.width) / 2, y: f.height - s.height, width: s.width, height: s.height)
+        return NSRect(x: (f.width - s.width) / 2 + currentShift, y: f.height - s.height, width: s.width, height: s.height)
     }
 
     private var mouseIsOverIsland: Bool {
@@ -239,7 +303,7 @@ final class NotchHUD {
         lastMouse = mouse
         let f = geo.screen.frame
         let idleWidth = island.idleWidth
-        let trigger = NSRect(x: f.midX - idleWidth / 2, y: f.maxY - geo.notchHeight - 2, width: idleWidth, height: geo.notchHeight + 2)
+        let trigger = NSRect(x: f.midX + island.idleShift - idleWidth / 2, y: f.maxY - geo.notchHeight - 2, width: idleWidth, height: geo.notchHeight + 2)
 
         if island.expanded {
             if mouseIsOverIsland {

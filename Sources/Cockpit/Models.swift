@@ -71,7 +71,8 @@ enum BucketInfo {
     }
     static func subtitle(for key: String) -> String {
         if let k = known[key] { return k.1 }
-        return "unlabeled window · \(key)"
+        // The raw key: it fits on a card, and its prefix still says which kind of window.
+        return key
     }
     static func isKnown(_ key: String) -> Bool { known[key] != nil }
     static func isModelSpecific(_ key: String) -> Bool { key != "five_hour" && key != "seven_day" }

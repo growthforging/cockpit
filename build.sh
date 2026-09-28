@@ -20,18 +20,43 @@ toolchain_broken() {
     echo "$1" | grep -qE "dyld\[|Symbol not found|not supported by the compiler|failed to build module 'Swift'"
 }
 
-# Build without SwiftPM, trying each installed SDK until one matches the compiler.
+# Build without SwiftPM, trying each installed SDK until one matches the compiler. Each
+# attempt's compiler output is kept in .build/direct/<sdk>.log. An SDK made for another
+# compiler is skipped; a genuine compile error stops the build and is shown.
 direct_build() {
-    local out=".build/direct/$APP" sdk
+    local out=".build/direct/$APP" sdk name log failed="" real seen=" "
     mkdir -p .build/direct
     for sdk in $(ls -dr "$CLT"/SDKs/MacOSX[0-9]*.sdk "$(xcode-select -p 2>/dev/null)"/Platforms/MacOSX.platform/Developer/SDKs/MacOSX[0-9]*.sdk 2>/dev/null); do
+        # MacOSX26.sdk and MacOSX26.5.sdk are one SDK, so each is tried once. Xcode's only
+        # versioned name is itself an alias, which is why this follows links, not skips them.
+        real=$(cd "$sdk" 2>/dev/null && pwd -P) || continue
+        case "$seen" in *" $real "*) continue ;; esac
+        seen="$seen$real "
+        name=$(basename "$sdk" .sdk)
+        log=".build/direct/${name}.log"
+        printf '  %s: ' "$name"
         if xcrun swiftc -O -parse-as-library -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
-             -sdk "$sdk" Sources/"$APP"/*.swift -o "$out" >/dev/null 2>&1; then
-            echo "  compiled directly with swiftc against $(basename "$sdk")"
+             -sdk "$sdk" Sources/"$APP"/*.swift -o "$out" >"$log" 2>&1; then
+            echo "compiled"
             BIN="$out"
             return 0
+        elif toolchain_broken "$(cat "$log")"; then
+            echo "made for a different compiler, trying the next one"
+        else
+            echo "failed"
+            failed="$log"
+            break
         fi
     done
+    if [ -n "$failed" ]; then
+        if grep -q "error:" "$failed"; then
+            grep "error:" "$failed" | head -20 >&2 || true
+        else
+            tail -40 "$failed" >&2
+        fi
+        echo "✗ Build failed (full compiler output in $failed)" >&2
+        exit 1
+    fi
     return 1
 }
 
@@ -49,7 +74,8 @@ fi
 if [ "$BUILT" = 1 ]; then
     echo "$OUT" | grep -E 'error:|Build complete' | tail -5
 elif toolchain_broken "$OUT"; then
-    echo "  SwiftPM cannot run on this toolchain; building without it."
+    echo "  SwiftPM does not work with this Swift install, which is normal after some macOS updates."
+    echo "  Compiling with swiftc directly instead. This takes about half a minute."
     direct_build || {
         echo "✗ No installed macOS SDK matches this Swift compiler. Reinstall the Command Line Tools with: xcode-select --install" >&2
         exit 1
@@ -81,9 +107,14 @@ SIGNING_DIR="${COCKPIT_SIGNING_DIR:-$HOME/.cockpit-signing}"
 SIGNING_KC="$SIGNING_DIR/cockpit-signing.keychain-db"
 KEYCHAIN_ARGS=()
 if [ -z "$IDENTITY" ] && [ -f "$SIGNING_KC" ] && [ -f "$SIGNING_DIR/password" ]; then
+    # Only ever sign from this keychain once it is unlocked. Pointed at a locked one,
+    # codesign asks for its password in a dialog, and nobody knows that password.
     if security unlock-keychain -p "$(cat "$SIGNING_DIR/password")" "$SIGNING_KC" 2>/dev/null; then
         IDENTITY="Cockpit Local Signing"
         KEYCHAIN_ARGS=(--keychain "$SIGNING_KC")
+    else
+        echo "  The Cockpit signing keychain no longer unlocks with its stored password."
+        echo "  Run tools/make-signing-identity.sh --reset to make a fresh one."
     fi
 fi
 if [ -z "$IDENTITY" ]; then
