@@ -76,17 +76,29 @@ if [ -z "$IDENTITY" ]; then
     # CI, and grep exiting 1 there must not abort the build under `set -e`.
     IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '"Apple Development: [^"]+"' | head -1 | tr -d '"' || true)
 fi
+# The private identity made by tools/make-signing-identity.sh, kept in its own keychain.
+SIGNING_DIR="${COCKPIT_SIGNING_DIR:-$HOME/.cockpit-signing}"
+SIGNING_KC="$SIGNING_DIR/cockpit-signing.keychain-db"
+KEYCHAIN_ARGS=()
+if [ -z "$IDENTITY" ] && [ -f "$SIGNING_KC" ] && [ -f "$SIGNING_DIR/password" ]; then
+    if security unlock-keychain -p "$(cat "$SIGNING_DIR/password")" "$SIGNING_KC" 2>/dev/null; then
+        IDENTITY="Cockpit Local Signing"
+        KEYCHAIN_ARGS=(--keychain "$SIGNING_KC")
+    fi
+fi
 if [ -z "$IDENTITY" ]; then
     # Any other code-signing identity is just as stable across rebuilds, which is all the
     # Accessibility and Keychain grants need. A self-signed one made in Keychain Access
     # works; it is listed even while macOS does not trust it as a root.
     IDENTITY=$(security find-identity -p codesigning 2>/dev/null | grep -E '^ +[0-9]+\)' | grep -oE '"[^"]+"' | head -1 | tr -d '"' || true)
 fi
-if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" --timestamp=none "$BUNDLE" 2>/dev/null; then
+if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --timestamp=none "$BUNDLE" 2>/dev/null; then
     echo "▸ Signed with: $IDENTITY"
 else
     codesign --force --sign - "$BUNDLE" >/dev/null 2>&1 || true
     echo "▸ Signed ad-hoc (no identity available; permissions will reset on each rebuild)"
+    echo "  Run tools/make-signing-identity.sh once to keep your permissions across rebuilds."
 fi
+[ -f "$SIGNING_KC" ] && security lock-keychain "$SIGNING_KC" 2>/dev/null || true
 
 echo "✓ Built $BUNDLE"

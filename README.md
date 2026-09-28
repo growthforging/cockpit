@@ -20,7 +20,7 @@ Solid fill shows where you are right now. Behind it, a faint band reaches as far
 
 Colour comes from that projection. A bar at 98% two minutes before its reset stays green, since the window refills before the number can hurt you. Leave four hours on the clock at that same 98% and it goes red, with a line underneath telling you how early you run out.
 
-Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Each is a white number beside a short bar anchored on the camera side. The bar stays white while your pace is comfortable, turns yellow when you are running ahead of it, and turns red when you will run out early. Either side can show any window you like, or nothing.
+Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Each is a number beside a short bar anchored on the camera side. Both stay white while your pace is comfortable, turn yellow when you are running ahead of it, and turn red when you will run out early. Either side can show any window you like, or nothing.
 
 ### Where the numbers come from
 
@@ -56,7 +56,11 @@ You need Xcode 15.3 or later, for Swift 5.10, or an equivalent Command Line Tool
 
 One detail is worth knowing before you grant any permissions. macOS ties Accessibility and Keychain grants to an app's code signature.
 
-If your Keychain holds a code-signing identity, `build.sh` uses it, so your grants survive every rebuild. An Apple Development certificate works, and so does a self-signed one: open Keychain Access, choose Certificate Assistant and then Create a Certificate, and set the certificate type to Code Signing. Without either, `build.sh` falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
+If your Keychain holds a code-signing identity, `build.sh` uses it, so your grants survive every rebuild. An Apple Development certificate works.
+
+The other route is `tools/make-signing-identity.sh`, run once. It makes a private signing identity in its own keychain file under `~/.cockpit-signing`, touches neither your login keychain nor any of your passwords, and `build.sh` picks it up from then on.
+
+With no identity at all, `build.sh` falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
 
 There is no prebuilt download, on purpose. A binary signed this way arrives quarantined and asks you to defeat Gatekeeper by hand, which is worse than the three commands above.
 

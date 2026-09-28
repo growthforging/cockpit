@@ -6,10 +6,11 @@ import AppKit
 // side by side against a real desktop.
 //
 // The design came out of a lab render judged by four independent critics. What they
-// agreed on, and what this file therefore does: the number stays white at menu-bar
-// weight; colour appears only when there is something to worry about, the way the
-// system battery works; the bar is anchored on the camera side so nothing shifts when
-// a value gains a digit; and there is no pace tick, which read as a rendering glitch.
+// agreed on, and what this file therefore does: menu-bar weight for the number; colour
+// only when there is something to worry about, the way the system battery works; the
+// bar anchored on the camera side so nothing shifts when a value gains a digit; and no
+// pace tick, which read as a rendering glitch. The critics wanted the number to stay
+// white in every state. The user preferred it to take the bar's colour, so it does.
 
 // MARK: - Shape
 
@@ -79,6 +80,18 @@ extension ReadoutModel {
 
     var fraction: CGFloat { CGFloat(min(100, max(0, pct))) / 100 }
     var atLimit: Bool { !synthesized && pct >= 100 }
+
+    // The number takes the bar's colour, so number and bar read as one state: white
+    // while it's fine, yellow when ahead of pace, red when running out early.
+    var ink: Color {
+        if synthesized { return Color.white.opacity(0.35) }
+        if atLimit { return Level.critical.color }
+        switch risk {
+        case .calm: return Color.white.opacity(0.95)
+        case .caution: return Level.caution.color
+        case .critical: return Level.critical.color
+        }
+    }
 
     // White while it's fine. Colour is reserved for the moment it means something.
     var fill: Color {
@@ -161,9 +174,7 @@ struct ReadoutNumber: View {
     var size: CGFloat = 13
 
     var body: some View {
-        let color = model.synthesized
-            ? Color.white.opacity(0.35)
-            : (model.atLimit ? Level.critical.color : Color.white.opacity(0.95))
+        let color = model.ink
         let digits = model.text.hasSuffix("%") ? String(model.text.dropLast()) : model.text
         var line = Text(digits)
             .font(.system(size: size, weight: .medium))
