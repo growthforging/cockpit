@@ -26,6 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let path = i + 1 < CommandLine.arguments.count ? CommandLine.arguments[i + 1] : "docs/cockpit.png"
             exit(Shot.render(to: path) ? 0 : 1)
         }
+        // --lab out.png [backdrop image] [y offset in points]: every notch readout style
+        // side by side against a real desktop.
+        if let i = CommandLine.arguments.firstIndex(of: "--lab") {
+            let args = CommandLine.arguments
+            let path = i + 1 < args.count ? args[i + 1] : "lab.png"
+            let backdrop = i + 2 < args.count ? args[i + 2] : nil
+            let y = i + 3 < args.count ? CGFloat(Double(args[i + 3]) ?? 0) : 0
+            exit(DesignLab.render(to: path, backdrop: backdrop, yOffset: y) ? 0 : 1)
+        }
 
         // One copy only: a second would double the pings and the gauges.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.growthforging.cockpit"
@@ -140,11 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             buckets = [usage.snapshot.fiveHour, usage.snapshot.weekly] + usage.modelBuckets
         }
         if buckets.isEmpty { buckets = [usage.snapshot.fiveHour] }
-        let entries = buckets.map { b -> StatusBarEntry in
-            let pace = usage.pace(for: b.key)
-            return StatusBarEntry(id: b.key, label: b.title, pct: b.pct, level: pace.risk, expectedPct: pace.expectedPct, synthesized: b.synthesized)
-        }
-        let renderer = ImageRenderer(content: StatusBarContent(entries: entries, precise: usage.precise))
+        let entries = buckets.map { ReadoutModel(bucket: $0, pace: usage.pace(for: $0.key), precise: usage.precise) }
+        let renderer = ImageRenderer(content: StatusBarContent(entries: entries))
         renderer.scale = max(2, NSScreen.main?.backingScaleFactor ?? 2)
         if let image = renderer.nsImage {
             image.isTemplate = false

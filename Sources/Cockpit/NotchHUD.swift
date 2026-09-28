@@ -23,7 +23,7 @@ struct NotchGeometry {
         }
         if let g = detect() {
             out += "notch: width=\(g.notchWidth) height=\(g.notchHeight)\n"
-            out += "idle bar: width=\(g.notchWidth + 2 * IslandMetrics.flankWidth) height=\(g.notchHeight)\n"
+            out += "idle bar: width=\(g.notchWidth + 2 * NotchReadout.flankWidth) height=\(g.notchHeight)\n"
             out += "island: width=\(IslandMetrics.expandedWidth) window=\(IslandMetrics.windowWidth)x\(IslandMetrics.windowHeight)"
         } else {
             out += "no notch detected (menu-bar mode only)"

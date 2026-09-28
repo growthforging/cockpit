@@ -49,7 +49,7 @@ actor UsageService {
                     // The token died early: renew it and go again. Only the access token is
                     // dropped, because the cache may hold the only live refresh token.
                     ClaudeCodeLogin.invalidateAccessToken()
-                    if allowKeychain, case .success(let fresh) = await ClaudeCodeLogin.fromKeychain(forceRefresh: true),
+                    if case .success(let fresh) = await ClaudeCodeLogin.current(allowKeychain: allowKeychain),
                        let snap = try? await fetchUsageEndpoint(token: fresh.accessToken) {
                         return FetchResult(snapshot: snap, loginState: .connected)
                     }

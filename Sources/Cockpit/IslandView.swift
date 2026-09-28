@@ -10,7 +10,7 @@ import SwiftUI
 // A click anywhere on the island pins it open; another click releases it.
 
 enum IslandMetrics {
-    static let flankWidth: CGFloat = 62
+    static let shoulder: CGFloat = NotchShape().shoulder   // flare where the body meets the bezel
     static let expandedWidth: CGFloat = 436
     static let expandedRadius: CGFloat = 24
     static let windowWidth: CGFloat = 480
@@ -41,7 +41,7 @@ final class IslandState: ObservableObject {
     @Published var showFlanks = true
     @Published var searchFocusRequest = 0
 
-    var idleWidth: CGFloat { notchWidth + 2 * IslandMetrics.flankWidth }
+    var idleWidth: CGFloat { notchWidth + 2 * NotchReadout.flankWidth }
     func expandedHeight(modelBuckets: Int, hasNote: Bool) -> CGFloat {
         notchHeight + IslandMetrics.contentHeight(tab: tab, modelBuckets: modelBuckets, hasNote: hasNote)
     }
@@ -70,15 +70,16 @@ struct IslandView: View {
         let width = expanded ? IslandMetrics.expandedWidth : island.idleWidth
         let height = expanded ? island.expandedHeight(modelBuckets: usage.modelBuckets.count, hasNote: usage.showsNote) : island.notchHeight
         let radius = expanded ? IslandMetrics.expandedRadius : island.cornerRadius
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0, bottomLeadingRadius: radius,
-            bottomTrailingRadius: radius, topTrailingRadius: 0, style: .continuous
-        )
+        let s = IslandMetrics.shoulder
+        // The fill carries the flared shoulders; the content is clipped to the body alone,
+        // so nothing ever draws into the curve where the black meets the bezel.
+        let outline = NotchShape(shoulder: s, bottom: radius)
+        let bodyShape = NotchShape(shoulder: 0, bottom: radius)
 
         ZStack(alignment: .top) {
-            shape
+            outline
                 .fill(Color.black)
-                .frame(width: width, height: height)
+                .frame(width: width + 2 * s, height: height)
                 .shadow(color: .black.opacity(expanded ? 0.32 : 0), radius: 10, y: 5)
                 .opacity(island.showFlanks || expanded ? 1 : 0)
 
@@ -91,9 +92,9 @@ struct IslandView: View {
                 }
             }
             .frame(width: width, height: height, alignment: .top)
-            .clipShape(shape)
+            .clipShape(bodyShape)
         }
-        .contentShape(shape)
+        .contentShape(outline)
         .onTapGesture { if island.expanded { actions.togglePin() } }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: expanded)
@@ -131,7 +132,10 @@ struct IslandView: View {
     @ViewBuilder
     private func flank(_ side: UsageModel.Side) -> some View {
         if let bucket = usage.flankBucket(side) {
-            FlankReadout(bucket: bucket, pace: usage.pace(for: bucket.key), precise: usage.precise)
+            NotchReadout(
+                model: ReadoutModel(bucket: bucket, pace: usage.pace(for: bucket.key), precise: usage.precise),
+                side: side == .left ? .leading : .trailing
+            )
         }
     }
 
@@ -169,39 +173,5 @@ struct IslandView: View {
                     .transition(.opacity.combined(with: .offset(y: 4)))
             }
         }
-    }
-}
-
-// The idle readout: the number over a short pace bar, coloured by risk.
-struct FlankReadout: View {
-    let bucket: UsageBucket
-    let pace: Pace
-    let precise: Bool
-
-    private let barWidth: CGFloat = 26
-    private let barHeight: CGFloat = 2.5
-
-    var body: some View {
-        VStack(spacing: 2.5) {
-            Text(bucket.synthesized ? "—" : fmtPct(bucket.pct, precise: precise))
-                .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(bucket.synthesized ? Ink.faint : pace.risk.color)
-                .contentTransition(.numericText(value: bucket.pct))
-                .animation(.spring(response: 0.5, dampingFraction: 0.9), value: bucket.pct)
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.22)).frame(width: barWidth, height: barHeight)
-                if !bucket.synthesized {
-                    Capsule().fill(pace.risk.color).frame(width: max(2, barWidth * CGFloat(min(100, bucket.pct)) / 100), height: barHeight)
-                }
-                if !bucket.synthesized, pace.expectedPct > 3, pace.expectedPct < 97 {
-                    Rectangle().fill(Color.white.opacity(0.9)).frame(width: 1, height: barHeight + 2)
-                        .offset(x: barWidth * CGFloat(pace.expectedPct) / 100 - 0.5)
-                }
-            }
-            .frame(width: barWidth, height: barHeight + 2)
-        }
-        .fixedSize()
-        .help(bucket.synthesized ? "\(bucket.title) · no usage data yet" : "\(bucket.title) · \(bucket.subtitle) · \(pace.verdict.compact)")
     }
 }

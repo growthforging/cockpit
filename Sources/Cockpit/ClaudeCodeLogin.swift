@@ -62,6 +62,21 @@ enum ClaudeCodeLogin {
            let exp = cached.expiresAt, exp.timeIntervalSinceNow > 300 {
             return .success(cached)
         }
+        // Renew from Cockpit's own refresh token before touching the Keychain. Every
+        // Keychain read is a chance for macOS to ask for a password, and a rebuilt app
+        // with a new signature is exactly when it would. The Keychain is only consulted
+        // when there is no saved token, or the saved one has been refused.
+        if let cached = readCache(), let saved = cached.refreshToken, !saved.isEmpty {
+            let record = Record(
+                service: service,
+                account: "",
+                token: ClaudeCodeToken(accessToken: "", expiresAt: nil, scopes: cached.scopes, subscription: cached.subscription),
+                refreshToken: saved
+            )
+            if case .success(let renewed) = await refresh(record) {
+                return .success(renewed)
+            }
+        }
         guard allowKeychain else { return .failure(.notFound) }
         return await fromKeychain(forceRefresh: false)
     }

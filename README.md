@@ -20,7 +20,7 @@ Solid fill shows where you are right now. Behind it, a faint band reaches as far
 
 Colour comes from that projection. A bar at 98% two minutes before its reset stays green, since the window refills before the number can hurt you. Leave four hours on the clock at that same 98% and it goes red, with a line underneath telling you how early you run out.
 
-Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Either side can show any window you like, or nothing.
+Two of those numbers also sit either side of the notch while the island is closed, so a glance tells you where you stand. Each is a white number beside a short bar anchored on the camera side. The bar stays white while your pace is comfortable, turns yellow when you are running ahead of it, and turns red when you will run out early. Either side can show any window you like, or nothing.
 
 ### Where the numbers come from
 
@@ -52,11 +52,11 @@ cd cockpit
 ./build.sh && cp -R Cockpit.app /Applications/ && open /Applications/Cockpit.app
 ```
 
-You need Xcode 15.3 or later, for Swift 5.10, or an equivalent Command Line Tools install. `build.sh` compiles, assembles the app bundle, and signs it.
+You need Xcode 15.3 or later, for Swift 5.10, or an equivalent Command Line Tools install. `build.sh` compiles, assembles the app bundle, and signs it. A macOS update can leave SwiftPM unable to run while the compiler still works, and when that happens `build.sh` compiles with `swiftc` directly against the newest SDK the compiler accepts.
 
 One detail is worth knowing before you grant any permissions. macOS ties Accessibility and Keychain grants to an app's code signature.
 
-If your Keychain holds an Apple Development identity, `build.sh` finds it and uses it, so your grants survive every rebuild. Without one it falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
+If your Keychain holds a code-signing identity, `build.sh` uses it, so your grants survive every rebuild. An Apple Development certificate works, and so does a self-signed one: open Keychain Access, choose Certificate Assistant and then Create a Certificate, and set the certificate type to Code Signing. Without either, `build.sh` falls back to an ad-hoc signature, which changes on each build, and macOS quietly stops honouring what you granted. The permission prompt returns after every rebuild.
 
 There is no prebuilt download, on purpose. A binary signed this way arrives quarantined and asks you to defeat Gatekeeper by hand, which is worse than the three commands above.
 
@@ -116,7 +116,7 @@ Cockpit writes down what it did. These three files in `~/.cockpit` hold the answ
 | `pace-state.json` | the projection behind each bar |
 | `state.json` | what Cockpit believes it drew, and on which screens |
 
-Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made.
+Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch geometry. `--shot out.png` renders the panel to an image, which is how the picture at the top of this page is made, and `--lab out.png` draws the notch readouts in every state, optionally over a screenshot you pass after it.
 
 A bar showing a dash has no data for that window yet. One reading "measuring pace" has too few samples to project from, which takes a few minutes on the session window and a few hours on a weekly one. Where samples are thin, Cockpit falls back to the window's own average once about 15% of it has elapsed. The local-log estimate carries no reset time at all, so its bars stay on "measuring pace" until you connect one of the other two sources.
 

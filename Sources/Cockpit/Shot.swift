@@ -121,15 +121,10 @@ private struct HeroShot: View {
         }
         .frame(width: IslandMetrics.expandedWidth)
         .background(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: IslandMetrics.expandedRadius,
-                bottomTrailingRadius: IslandMetrics.expandedRadius,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
-            .fill(Color.black)
-            .shadow(color: .black.opacity(0.5), radius: 18, y: 9)
+            NotchShape(shoulder: IslandMetrics.shoulder, bottom: IslandMetrics.expandedRadius)
+                .fill(Color.black)
+                .padding(.horizontal, -IslandMetrics.shoulder)
+                .shadow(color: .black.opacity(0.32), radius: 10, y: 5)
         )
     }
 
