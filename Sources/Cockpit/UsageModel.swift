@@ -8,6 +8,7 @@ final class UsageModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var hasToken = TokenStore.hasToken
     @Published private(set) var loginState: LoginState = .off
+    @Published private(set) var signIn: SignInState = .idle
 
     @Published var refreshSeconds: Int { didSet { save(); scheduleTimer() } }
     @Published var notificationsEnabled: Bool { didSet { save() } }
@@ -36,6 +37,10 @@ final class UsageModel: ObservableObject {
     private var wakeObserver: NSObjectProtocol?
     private var paceSamples: [PaceSample]?
     private var refreshTask: Task<Void, Never>?
+    private var signInTask: Task<Void, Never>?
+    private var lastRefreshStart = Date.distantPast
+
+    enum SignInState: Equatable { case idle, waiting, failed(String) }
 
     init() {
         let d = UserDefaults.standard
@@ -71,15 +76,19 @@ final class UsageModel: ObservableObject {
     var precise: Bool { snapshot.precise }
     var showsNote: Bool { (snapshot.note?.isEmpty == false) }
 
-    // Shown until the Claude Code login is feeding per-model numbers.
+    // Shown, beside a Sign in button, until a login is feeding per-model numbers.
     var loginHint: String? {
-        guard useClaudeCodeLogin else { return "Connect Claude Code login" }
+        switch signIn {
+        case .waiting: return "Finish signing in on the page that opened in your browser"
+        case .failed(let why): return why
+        case .idle: break
+        }
+        guard useClaudeCodeLogin else { return "Per-model limits are off · sign in to see Fable" }
         switch loginState {
         case .connected: return nil
-        case .off: return "Connect Claude Code login"
-        case .denied: return "Keychain declined · ask again"
-        case .notFound: return "No Claude Code login · re-check"
-        case .noScope: return "Login lacks the usage scope"
+        case .off, .notFound: return "Sign in to Claude to see Fable and the other model limits"
+        case .denied: return "Keychain access declined · sign in instead"
+        case .noScope: return "This login can't read usage · sign in again"
         case .failed(let why): return why
         }
     }
@@ -155,10 +164,14 @@ final class UsageModel: ObservableObject {
 
     private func performRefresh() async {
         isRefreshing = true
-        let r = await service.fetch(useLogin: useClaudeCodeLogin && !loginDeclined, allowKeychain: true)
+        lastRefreshStart = Date()
+        // A declined Keychain prompt only stops Keychain reads. A login Cockpit holds
+        // itself still answers.
+        let r = await service.fetch(useLogin: useClaudeCodeLogin, allowKeychain: !loginDeclined)
         snapshot = r.snapshot
         if case .denied = r.loginState { loginDeclined = true }
-        loginState = (useClaudeCodeLogin && loginDeclined) ? .denied : r.loginState
+        loginState = (loginDeclined && r.loginState == .notFound) ? .denied : r.loginState
+        if loginState == .connected, case .failed = signIn { signIn = .idle }
         hasToken = TokenStore.hasToken
         isRefreshing = false
         updatePace(r.snapshot)
@@ -172,6 +185,45 @@ final class UsageModel: ObservableObject {
     func retryLogin() {
         loginDeclined = false
         useClaudeCodeLogin = true
+    }
+
+    // Opens claude.com in the browser and waits for the approval there. A second click
+    // starts over, which is also how a sign-in abandoned in the browser gets unstuck.
+    func signInToClaude() {
+        signInTask?.cancel()
+        signIn = .waiting
+        signInTask = Task { [weak self] in
+            let result = await ClaudeSignIn.run()
+            guard let self, !Task.isCancelled else { return }
+            self.signInTask = nil
+            switch result {
+            case .success:
+                self.signIn = .idle
+                self.loginDeclined = false
+                let signedIn = Date()
+                if !self.useClaudeCodeLogin { self.useClaudeCodeLogin = true }
+                await self.refresh(force: true)
+                // A refresh already in flight when the sign-in landed read the old login.
+                if self.lastRefreshStart < signedIn { await self.refresh(force: true) }
+            case .failure(.cancelled):
+                self.signIn = .idle
+            case .failure(let f):
+                self.signIn = .failed(f.message)
+            }
+        }
+    }
+
+    func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        signIn = .idle
+    }
+
+    // Drops the login Cockpit keeps in ~/.cockpit. The Keychain item is left alone.
+    func forgetSavedLogin() {
+        cancelSignIn()
+        ClaudeCodeLogin.clearCache()
+        Task { await refresh(force: true) }
     }
 
     func setToken(_ token: String) {

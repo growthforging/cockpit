@@ -22,16 +22,32 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Usage") {
-                Toggle("Per-model usage from the Claude Code login", isOn: $usage.useClaudeCodeLogin)
+                Toggle("Per-model usage (Fable and the rest)", isOn: $usage.useClaudeCodeLogin)
                 LabeledContent("Login") {
                     Text(usage.useClaudeCodeLogin ? usage.loginState.label : "off")
                         .foregroundStyle(usage.loginState == .connected ? .green : .secondary)
                 }
-                if usage.useClaudeCodeLogin, usage.loginState != .connected {
-                    Button("Ask for Keychain access again") { usage.retryLogin() }
+                HStack {
+                    if usage.signIn == .waiting {
+                        Text("Waiting for the browser…").foregroundStyle(.secondary)
+                        Button("Cancel") { usage.cancelSignIn() }
+                    } else {
+                        Button(usage.loginState == .connected ? "Sign in again…" : "Sign in to Claude…") { usage.signInToClaude() }
+                    }
+                    if usage.useClaudeCodeLogin, usage.loginState != .connected {
+                        Button("Check the Keychain again") { usage.retryLogin() }
+                    }
+                    if ClaudeCodeLogin.hasSavedLogin {
+                        Button("Forget saved login", role: .destructive) { usage.forgetSavedLogin() }
+                    }
+                }
+                if case .failed(let why) = usage.signIn {
+                    Text(why)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
                 Toggle("Show unlabeled windows the usage API returns", isOn: $usage.showUnlabeledBuckets)
-                Text("Fable, Opus and the other per-model windows only come from Anthropic's usage endpoint, which needs the login Claude Code keeps in your Keychain. macOS asks before Cockpit reads it. Cockpit only ever reads that item. Writing to a Keychain item another app created resets its access list, and the owner then has to type the login password on every single read. Access tokens last hours, so when one expires Cockpit renews it and keeps the result in ~/.cockpit/claude-code-login.json at mode 0600. Anthropic may issue a fresh refresh token during a renewal, in which case `claude` asks you to sign in once more the next time you run it.")
+                Text("Fable and the other per-model windows only come from Anthropic's usage endpoint, which needs a Claude login. Sign in opens claude.com in your browser and gives Cockpit a login of its own. Cockpit renews it and keeps it in ~/.cockpit/claude-code-login.json at mode 0600, and it keeps working whether or not `claude` is signed in. Without one, Cockpit borrows the login Claude Code keeps in your Keychain. macOS asks before Cockpit reads that item, and Cockpit never writes to it. Renewing a borrowed login can make `claude` ask you to sign in again.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

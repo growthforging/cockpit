@@ -11,18 +11,20 @@ import Security
 // them itself exactly the way the CLI does (same endpoint, same client id, same
 // scopes) and writes the new pair back into the same item, keeping the CLI logged in.
 // The current access token is cached (0600) so rebuilds don't re-prompt while it's valid.
+// ClaudeSignIn can also give Cockpit a login of its own, kept in the same file, and that
+// one is tried before the Keychain is ever read.
 struct ClaudeCodeToken: Codable {
     var accessToken: String
     var expiresAt: Date?
     var scopes: [String]
     var subscription: String?
-    var refreshToken: String? = nil   // only cached when the Keychain write-back failed
+    var refreshToken: String? = nil   // Cockpit's own copy: from its sign-in, or from renewing the CLI's
 }
 
 enum ClaudeCodeLogin {
     private static let service = "Claude Code-credentials"
-    private static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!   // Claude Code's TOKEN_URL
-    private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"                     // Claude Code's public client
+    static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!   // Claude Code's TOKEN_URL
+    static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"                     // Claude Code's public client
     private static let defaultScopes = ["user:inference", "user:profile"]
 
     enum Failure: Error, Equatable { case notFound, denied, malformed, noScope, expired, refreshFailed(String) }
@@ -168,7 +170,7 @@ enum ClaudeCodeLogin {
             guard let http = response as? HTTPURLResponse else { return .failure(.refreshFailed("no response")) }
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             guard http.statusCode == 200, let access = obj?["access_token"] as? String, !access.isEmpty else {
-                let why = (obj?["error_description"] as? String) ?? (obj?["error"] as? String) ?? "HTTP \(http.statusCode)"
+                let why = errorText(obj, status: http.statusCode)
                 note(" · refresh refused: \(why)")
                 return .failure((400...401).contains(http.statusCode) ? .expired : .refreshFailed(why))
             }
@@ -180,6 +182,15 @@ enum ClaudeCodeLogin {
         } catch {
             return .failure(.refreshFailed("offline"))
         }
+    }
+
+    // OAuth errors come as {"error": "invalid_grant", "error_description": …}; rate limits
+    // and outages as Anthropic's own {"error": {"type": …, "message": …}}.
+    static func errorText(_ obj: [String: Any]?, status: Int) -> String {
+        if let d = obj?["error_description"] as? String, !d.isEmpty { return d }
+        if let e = obj?["error"] as? String, !e.isEmpty { return e }
+        if let m = (obj?["error"] as? [String: Any])?["message"] as? String, !m.isEmpty { return m }
+        return "HTTP \(status)"
     }
 
     // MARK: - Reading
@@ -313,6 +324,19 @@ enum ClaudeCodeLogin {
     // MARK: - Cache
 
     static func clearCache() { try? FileManager.default.removeItem(at: CockpitPaths.loginCache) }
+
+    // A finished ClaudeSignIn. Its refresh token replaces whatever was saved: that one is
+    // either dead or the CLI's, and keeping the CLI's would go on rotating it out from
+    // under `claude`.
+    static func adopt(_ token: ClaudeCodeToken, refreshToken: String) {
+        var t = token
+        t.refreshToken = refreshToken
+        clearCache()
+        writeCache(t)
+        lastDiagnostic = "signed in from Cockpit"
+    }
+
+    static var hasSavedLogin: Bool { readCache()?.refreshToken?.isEmpty == false }
 
     // The server rejected the access token. Dropping the whole cache here would also drop a
     // refresh token that `writeBack` failed to store, and that copy is the only live one:

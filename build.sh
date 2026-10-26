@@ -13,11 +13,12 @@ BIN=".build/$CONFIG/$APP"
 CLT=/Library/Developer/CommandLineTools
 
 # A macOS update can leave the toolchain half-updated: an SDK built for a newer
-# compiler than the one installed, or a swift-package binary that no longer links.
-# Those are not compile errors in this code, and the compiler itself usually still
-# works against an older SDK.
+# compiler than the one installed, a swift-package binary that no longer links, or an
+# SDK whose SwiftUI declares @State as a macro whose plugin only Xcode ships. Those are
+# not compile errors in this code, and the compiler itself usually still works against
+# an older SDK.
 toolchain_broken() {
-    echo "$1" | grep -qE "dyld\[|Symbol not found|not supported by the compiler|failed to build module 'Swift'"
+    echo "$1" | grep -qE "dyld\[|Symbol not found|not supported by the compiler|failed to build module 'Swift'|plugin for module '[A-Za-z]+' not found"
 }
 
 # Build without SwiftPM, trying each installed SDK until one matches the compiler. Each

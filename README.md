@@ -30,7 +30,7 @@ Some apps have more menus than fit left of the camera, and macOS continues them 
 
 Cockpit tries three sources in order, and the panel always says which one answered.
 
-1. The login that the Claude Code command line keeps in your Keychain. This is the only source that carries per-model windows.
+1. A Claude login. The Sign in button in the usage panel opens claude.com in your browser and gives Cockpit a login of its own. Until you use it, Cockpit borrows the login the Claude Code command line keeps in your Keychain. Only a login carries per-model windows such as Fable.
 2. A token from `claude setup-token`, pasted into Settings, or `CLAUDE_CODE_OAUTH_TOKEN` in the environment, which wins over the pasted one. Either way it costs one 1-token ping, and the session and weekly percentages come back in the response headers.
 3. Neither of those, in which case Cockpit adds up the cache tokens in your local `~/.claude` transcripts and divides by a fixed budget.
 
@@ -83,11 +83,13 @@ Nothing prompts you at launch. Without it a click on a clip still copies it and 
 
 ### Keychain
 
-Per-model numbers come from an Anthropic endpoint that needs the login the Claude Code command line stores in your Keychain. macOS asks before Cockpit reads it, and choosing Always Allow means it never asks again.
+Per-model numbers come from an Anthropic endpoint that needs a Claude login. Click Sign in and Cockpit never touches the Keychain for it. Its own login stays separate from the one `claude` uses, so signing either of them out leaves the other working.
+
+Until you sign in, Cockpit borrows the login the Claude Code command line stores in your Keychain. macOS asks before Cockpit reads it, and choosing Always Allow means it never asks again.
 
 Cockpit only reads that item. Writing to a Keychain item another app created resets the item's access list, and the owner is then asked for the login password on every single read, which is a miserable thing to inflict on a tool you use all day.
 
-Access tokens expire after a few hours, and the command line only renews them while it runs. When one expires, Cockpit renews it against the same endpoint and keeps the result in its own file. Anthropic may issue a fresh refresh token during a renewal, so `claude` can ask you to sign in once more the next time you run it.
+Access tokens expire after a few hours, and the command line only renews them while it runs. When one expires, Cockpit renews it against the same endpoint and keeps the result in its own file. Anthropic may issue a fresh refresh token during a renewal, so `claude` can ask you to sign in once more the next time you run it. A login of Cockpit's own avoids this.
 
 ### Notifications
 
@@ -105,13 +107,15 @@ Everything the app sends goes to Anthropic, over three endpoints and nowhere els
 | --- | --- |
 | per-model usage numbers | `api.anthropic.com/api/oauth/usage` |
 | one 1-token ping whose response headers carry session and weekly percentages | `api.anthropic.com/v1/messages` |
-| renewal of the login, the same call the command line makes | `platform.claude.com/v1/oauth/token` |
+| signing in and renewing the login, the same calls the command line makes | `platform.claude.com/v1/oauth/token` |
+
+Sign in hands your browser to `claude.com`, where you approve Cockpit. Until you do, or for five minutes at most, Cockpit listens on a random port of 127.0.0.1 for the browser to hand back the result. That port cannot be reached from outside your Mac, and it closes as soon as the answer arrives.
 
 Nothing else leaves your Mac. There is no analytics SDK in the binary, and no server of mine for it to talk to. Your clipboard stays local.
 
 State lives in `~/.cockpit`, a directory kept at mode 0700, with every file inside it written 0600 and repaired on launch if something loosened them. Clipboard history sits there as plain JSON beside plain image files, so anything already running as you can read it. Recording has an off switch in Settings, and the history has a Clear button.
 
-One thing is worth naming plainly. Cockpit writes a live access token to `~/.cockpit/claude-code-login.json`, outside the Keychain, because it has to survive a relaunch. That file is mode 0600, and the Keychain item itself is only ever read.
+One thing is worth naming plainly. Cockpit writes a live login, access token and refresh token, to `~/.cockpit/claude-code-login.json`, outside the Keychain, because it has to survive a relaunch. That file is mode 0600, and the Keychain item itself is only ever read. Forget saved login in Settings deletes it.
 
 ## Settings
 
@@ -133,7 +137,7 @@ Run `Cockpit.app/Contents/MacOS/Cockpit --notchinfo` to dump screen and notch ge
 
 A bar showing a dash has no data for that window yet. One reading "measuring pace" has too few samples to project from, which takes a few minutes on the session window and a few hours on a weekly one. Where samples are thin, Cockpit falls back to the window's own average once about 15% of it has elapsed. The local-log estimate carries no reset time at all, so its bars stay on "measuring pace" until you connect one of the other two sources.
 
-When the usage panel reports an expired login, run `claude` once and sign in.
+When Fable is missing from the panel, or it reports an expired login, click Sign in beside the message.
 
 If macOS starts asking for your login password every time something reads the `Claude Code-credentials` key, a build before 2026-09-18 rewrote that item and reset its access list. Click Always Allow once on the prompt to restore it. Accessibility that looks granted while the wheel keeps scrolling the old way usually means the signature changed underneath it, so remove Cockpit from the Accessibility list and add it back. On macOS 27 that list is called Device Control and Data Access.
 

@@ -103,6 +103,7 @@ struct IconButton: View {
 struct PillButton: View {
     let title: String
     var prominent = false
+    var height: CGFloat = 24
     let action: () -> Void
     @State private var hover = false
 
@@ -112,7 +113,7 @@ struct PillButton: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(prominent ? Color.black : Ink.text)
                 .padding(.horizontal, 11)
-                .frame(height: 24)
+                .frame(height: height)
                 .background(Capsule().fill(prominent ? Color.white.opacity(hover ? 1 : 0.9) : Color.white.opacity(hover ? 0.17 : 0.10)))
                 .contentShape(Capsule())
         }

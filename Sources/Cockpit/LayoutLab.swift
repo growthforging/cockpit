@@ -224,6 +224,24 @@ private struct OpenSheet: View {
                 }
                 .padding(IslandMetrics.pad)
             }
+            // Signed out: no per-model window, and the row that gets one back.
+            panel(.usage, modelBuckets: 0, hasHint: true) {
+                VStack(spacing: 10) {
+                    BucketGrid(entries: [
+                        (Sample.session, Sample.sessionPace),
+                        (Sample.week, Sample.weekPace),
+                    ], precise: false)
+                    SignInRow(hint: "Sign in to Claude to see Fable and the other model limits", state: .idle, signIn: {}, cancel: {})
+                        .frame(height: 22)
+                    HStack(spacing: 8) {
+                        SourcePill(source: .ping)
+                        Text("updated 5s ago").font(.system(size: 10.5)).foregroundStyle(Ink.faint)
+                        Spacer()
+                    }
+                    .frame(height: 22)
+                }
+                .padding(IslandMetrics.pad)
+            }
             panel(.clips, modelBuckets: 0) {
                 VStack(spacing: 8) {
                     HStack(spacing: 7) {
@@ -266,10 +284,10 @@ private struct OpenSheet: View {
         return out
     }
 
-    private func panel<Content: View>(_ tab: IslandTab, modelBuckets: Int, @ViewBuilder content: () -> Content) -> some View {
+    private func panel<Content: View>(_ tab: IslandTab, modelBuckets: Int, hasHint: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         let w = IslandMetrics.expandedWidth
         let s = IslandMetrics.shoulder
-        let height = world.band + IslandMetrics.contentHeight(tab: tab, modelBuckets: modelBuckets, hasNote: false, hasHint: false)
+        let height = world.band + IslandMetrics.contentHeight(tab: tab, modelBuckets: modelBuckets, hasNote: false, hasHint: hasHint)
         let cropX: CGFloat = 256
         let cropW: CGFloat = 1000
         return ZStack(alignment: .topLeading) {

@@ -12,7 +12,8 @@ struct UsageTab: View {
                 noteRow(note).frame(height: IslandMetrics.noteHeight)
             }
             if let hint = usage.loginHint {
-                hintRow(hint).frame(height: 22)
+                SignInRow(hint: hint, state: usage.signIn, signIn: { usage.signInToClaude() }, cancel: { usage.cancelSignIn() })
+                    .frame(height: 22)
             }
             footer.frame(height: 22)
         }
@@ -39,27 +40,6 @@ struct UsageTab: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Level.caution.color.opacity(0.10)))
     }
 
-    // A login problem gets a row of its own: it can be long, and it matters more than
-    // anything else down here.
-    private func hintRow(_ hint: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "key")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Ink.faint)
-            Button(action: { usage.retryLogin() }) {
-                Text(hint)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Ink.dim)
-                    .underline(true, color: Ink.faint)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .buttonStyle(.plain)
-            .help("\(hint)\n\nPer-model windows come from the login Claude Code keeps in your Keychain. Run `claude` in a terminal and sign in, then click here to look again.")
-            Spacer(minLength: 0)
-        }
-    }
-
     // Where the numbers came from on the left, what the idle notch shows on the right.
     private var footer: some View {
         HStack(spacing: 8) {
@@ -78,6 +58,37 @@ struct UsageTab: View {
                 .foregroundStyle(Ink.faint)
             FlankPicker(side: .left)
             FlankPicker(side: .right)
+        }
+    }
+}
+
+// A login problem gets a row of its own: it can be long, and it matters more than
+// anything else down here. The way out is one button, right beside it. A view of its
+// own so the layout lab draws the same row.
+struct SignInRow: View {
+    let hint: String
+    let state: UsageModel.SignInState
+    let signIn: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: state == .waiting ? "hourglass" : "key")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Ink.faint)
+            Text(hint)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Ink.dim)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(hint)
+            Spacer(minLength: 8)
+            if state == .waiting {
+                PillButton(title: "Cancel", height: 20, action: cancel)
+            } else {
+                PillButton(title: state == .idle ? "Sign in" : "Try again", prominent: true, height: 20, action: signIn)
+                    .help("Opens claude.com in your browser. Approve there and Cockpit gets a login of its own for the per-model limits, separate from the one `claude` uses.")
+            }
         }
     }
 }

@@ -12,9 +12,9 @@ enum LoginState: Equatable {
         switch self {
         case .off: return "off"
         case .connected: return "connected"
-        case .notFound: return "no Claude Code login found"
+        case .notFound: return "not signed in"
         case .denied: return "Keychain access declined"
-        case .noScope: return "login lacks the usage scope"
+        case .noScope: return "login can't read usage"
         case .failed(let why): return why
         }
     }
@@ -53,7 +53,7 @@ actor UsageService {
                        let snap = try? await fetchUsageEndpoint(token: fresh.accessToken) {
                         return FetchResult(snapshot: snap, loginState: .connected)
                     }
-                    loginState = .failed("Login expired · run `claude`, then /login")
+                    loginState = .failed("Login expired · sign in again")
                 } catch UsageError.forbidden {
                     loginState = .noScope
                 } catch UsageError.http(let code) {
@@ -69,7 +69,7 @@ actor UsageService {
                 case .denied: loginState = .denied
                 case .malformed: loginState = .failed("login item unreadable")
                 case .noScope: loginState = .noScope
-                case .expired: loginState = .failed("Login expired · run `claude`, then /login")
+                case .expired: loginState = .failed("Login expired · sign in again")
                 case .refreshFailed(let why): loginState = .failed("Couldn't renew the login · \(why)")
                 }
             }
