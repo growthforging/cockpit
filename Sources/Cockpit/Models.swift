@@ -55,10 +55,14 @@ enum BucketInfo {
         "seven_day_sonnet": ("Sonnet", "weekly"),
         "seven_day_oauth_apps": ("OAuth apps", "weekly"),
         "seven_day_cowork": ("Cowork", "weekly"),
+        // A codename, and the cloud-session credit behind it: on 2026-10-27 its reset was
+        // the credit's expiry to the minute and its percent the dollars spent. It is a
+        // balance running down, not a weekly limit, and Anthropic may rename it.
+        "iguana_necktie": ("Cloud usage", "cloud sessions"),
     ]
     private static let order = [
         "five_hour", "seven_day", "seven_day_fable", "seven_day_mythos", "seven_day_opus",
-        "seven_day_sonnet", "seven_day_cowork", "seven_day_oauth_apps",
+        "seven_day_sonnet", "seven_day_cowork", "seven_day_oauth_apps", "iguana_necktie",
     ]
 
     static func title(for key: String) -> String {
@@ -94,7 +98,8 @@ struct UsageSnapshot {
     var weekly: UsageBucket { bucket("seven_day") ?? UsageBucket(key: "seven_day", pct: 0, resetAt: nil, synthesized: true) }
     // The per-model window worth featuring, whatever this month's model is called.
     var featuredModel: UsageBucket? {
-        buckets.first { $0.isModelLimit } ?? buckets.first { $0.isModelSpecific && BucketInfo.isKnown($0.key) }
+        buckets.first { $0.isModelLimit }
+            ?? buckets.first { $0.key.hasPrefix("seven_day_") && BucketInfo.isKnown($0.key) }
     }
 
     static let placeholder = UsageSnapshot(buckets: [], source: .unavailable, asOf: .distantPast, note: "Loading…", precise: false)

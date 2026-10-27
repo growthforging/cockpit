@@ -130,7 +130,7 @@ final class UsageModel: ObservableObject {
             // Codename windows (no label from the API) stay out unless asked for in Settings.
             let unlabeled = !BucketInfo.isKnown(b.key) && b.label == nil
             if unlabeled && !showUnlabeledBuckets { continue }
-            let suffix = unlabeled ? " · unlabeled" : (b.isModelSpecific ? " · weekly" : "")
+            let suffix = unlabeled ? " · unlabeled" : (b.key.hasPrefix("seven_day_") ? " · weekly" : "")
             out.append((b.key, b.title + suffix))
         }
         for key in ["five_hour", "seven_day"] where !snapshot.buckets.contains(where: { $0.key == key }) {
